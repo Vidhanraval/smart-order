@@ -12,16 +12,25 @@
     "test:watch": "jest --watch",
     "test:debug": "node --inspect-brk -r tsconfig-paths/register -r ts-node/register node_modules/.bin/jest --runInBand",
     "test:e2e": "jest --config ./test/jest-e2e.json",
-    "lint": "eslint \"{src,apps,libs,test}/**/*.ts\""
+    "lint": "eslint \"{src,apps,libs,test}/**/*.ts\"",
+    "db:generate": "prisma generate",
+    "db:push": "prisma db push"
   },
   "dependencies": {
+    "@google/generative-ai": "^0.24.1",
+    "@nestjs/axios": "^4.0.1",
     "@nestjs/common": "^11.1.11",
+    "@nestjs/config": "^4.0.4",
     "@nestjs/core": "^11.1.11",
     "@nestjs/platform-express": "^11.1.11",
+    "@prisma/client": "5.22.0",
     "@repo/api": "*",
+    "axios": "^1.16.1",
+    "escape-html": "^1.0.3",
+    "openai": "^6.39.0",
+    "prisma": "5.22.0",
     "reflect-metadata": "^0.2.2",
-    "rxjs": "^7.8.2",
-    "escape-html": "^1.0.3"
+    "rxjs": "^7.8.2"
   },
   "devDependencies": {
     "@jest/globals": "^30.2.0",

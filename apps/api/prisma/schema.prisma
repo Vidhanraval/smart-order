@@ -1,0 +1,75 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Customer {
+  id          String    @id @default(uuid())
+  phoneNumber String    @unique
+  name        String?
+  orders      Order[]
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+}
+
+model Seller {
+  id          String    @id @default(uuid())
+  phoneNumber String    @unique
+  name        String?
+  storeName   String?
+  orders      Order[]
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+}
+
+model Order {
+  id            String   @id @default(uuid())
+  customerId    String
+  sellerId      String
+  status        String   @default("PARSING")
+  customer      Customer @relation(fields: [customerId], references: [id])
+  seller        Seller   @relation(fields: [sellerId], references: [id])
+  items         OrderItem[]
+  messages      Message[]
+  totalPrice    Float?
+  originalInput String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+model OrderItem {
+  id               String   @id @default(uuid())
+  orderId          String
+  order            Order    @relation(fields: [orderId], references: [id])
+  name             String
+  quantity         Int      @default(1)
+  unit             String?
+  estimatedPrice   Float?
+  actualPrice      Float?
+  status           String   @default("PENDING")
+  replacementFor   String?
+  replacementName  String?
+  replacementPrice Float?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+}
+
+model Message {
+  id          String    @id @default(uuid())
+  waMessageId String?   @unique
+  from        String
+  to          String
+  direction   String
+  body        String?
+  mediaUrl    String?
+  mediaType   String?
+  mediaId     String?
+  orderId     String?
+  order       Order?    @relation(fields: [orderId], references: [id])
+  processedAt DateTime?
+  createdAt   DateTime  @default(now())
+}

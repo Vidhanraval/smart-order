@@ -4,5 +4,6 @@
     "baseUrl": "./",
     "outDir": "./dist",
     "strictNullChecks": true
-  }
+  },
+  "exclude": ["node_modules", "dist", "prisma.config.ts"]
 }
