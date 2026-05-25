@@ -6,9 +6,6 @@ import { AiModule } from './modules/ai/ai.module';
 import { OrdersModule } from './modules/orders/orders.module';
 import { CustomersModule } from './modules/customers/customers.module';
 import { SellersModule } from './modules/sellers/sellers.module';
-import { LinksModule } from './links/links.module';
-import { AppService } from './app.service';
-import { AppController } from './app.controller';
 import configuration from './config/configuration';
 
 @Module({
@@ -20,9 +17,6 @@ import configuration from './config/configuration';
     OrdersModule,
     CustomersModule,
     SellersModule,
-    LinksModule,
   ],
-  controllers: [AppController],
-  providers: [AppService],
 })
 export class AppModule {}

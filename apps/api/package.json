@@ -24,7 +24,6 @@
     "@nestjs/core": "^11.1.11",
     "@nestjs/platform-express": "^11.1.11",
     "@prisma/client": "5.22.0",
-    "@repo/api": "*",
     "axios": "^1.16.1",
     "escape-html": "^1.0.3",
     "openai": "^6.39.0",
