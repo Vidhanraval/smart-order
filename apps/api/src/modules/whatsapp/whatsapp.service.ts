@@ -360,7 +360,7 @@ export class WhatsAppService {
 
     const item = await this.prisma.orderItem.findUnique({
       where: { id: itemId },
-      include: { order: { include: { customer: true } } },
+      include: { order: { include: { customer: true, items: true } } },
     });
 
     if (!item) return;
@@ -368,9 +368,10 @@ export class WhatsAppService {
     // Move order to awaiting replacement
     await this.ordersService.transitionStatus(item.orderId, 'AWAITING_REPLACEMENT');
 
-    // Notify buyer
+    // Notify buyer with full order context
+    const allItems = item.order.items ?? [];
     const replacementMsg = buildReplacementReview(
-      item.orderId,
+      allItems,
       item,
       replacementName,
       replacementPrice,

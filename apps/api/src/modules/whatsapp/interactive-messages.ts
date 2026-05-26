@@ -70,32 +70,49 @@ export function buildOrderReviewList(orderId: string, items: OrderItem[]): Whats
 }
 
 export function buildReplacementReview(
-  orderId: string,
-  originalItem: OrderItem,
+  items: OrderItem[],
+  notFoundItem: OrderItem,
   replacementName: string,
   replacementPrice: number,
-): WhatsAppInteractiveButtons {
+): WhatsAppInteractiveList {
+  const itemsList = items
+    .map((item) => {
+      let emoji = '⏳ ';
+      if (item.id === notFoundItem.id) emoji = '❌ ';
+      else if (item.status === 'FOUND') emoji = '✅ ';
+
+      let line = `${emoji}${item.name} — ${item.quantity} ${item.unit ?? 'pcs'} @ ₹${item.estimatedPrice ?? '?'}`;
+      if (item.id === notFoundItem.id) {
+        line += `\n   ↳ Available: ${replacementName} @ ₹${replacementPrice}`;
+      }
+      return line;
+    })
+    .join('\n');
+
   return {
-    type: 'button',
+    type: 'list',
     header: { type: 'text', text: 'Item Unavailable' },
     body: {
-      text: `"${originalItem.name}" (${originalItem.quantity} ${originalItem.unit}) is out of stock.\n\nSuggested replacement: ${replacementName} @ ₹${replacementPrice}\n\nAccept this replacement?`,
+      text: `"${notFoundItem.name}" is out of stock.\n\n📋 Your Order:\n${itemsList}\n\nAccept the replacement or skip this item.`,
     },
+    footer: { text: 'SmartOrder — Your Local Shop' },
     action: {
-      buttons: [
+      button: 'Options',
+      sections: [
         {
-          type: 'reply',
-          reply: {
-            id: `accept_${originalItem.id}`,
-            title: '✅ Accept',
-          },
-        },
-        {
-          type: 'reply',
-          reply: {
-            id: `skip_${originalItem.id}`,
-            title: '⏭ Skip',
-          },
+          title: 'Actions',
+          rows: [
+            {
+              id: `accept_${notFoundItem.id}`,
+              title: `✅ Accept: ${replacementName}`,
+              description: `₹${replacementPrice} — replaces "${notFoundItem.name}"`,
+            },
+            {
+              id: `skip_${notFoundItem.id}`,
+              title: '⏭ Skip Item',
+              description: 'Remove from your order',
+            },
+          ],
         },
       ],
     },
@@ -118,7 +135,14 @@ export function buildPackingSlip(orderId: string, items: OrderItem[]): WhatsAppI
     statusText += `✅ Found: ${foundItems.map((i) => i.name).join(', ')}\n`;
   }
   if (notFoundItems.length > 0) {
-    statusText += `❌ Missing: ${notFoundItems.map((i) => i.name).join(', ')}\n`;
+    statusText += `❌ Missing:\n`;
+    for (const i of notFoundItems) {
+      statusText += `   ${i.name}`;
+      if (i.replacementName) {
+        statusText += ` → ${i.replacementName} @ ₹${i.replacementPrice ?? '?'}`;
+      }
+      statusText += '\n';
+    }
   }
   if (pendingItems.length > 0) {
     statusText += `⏳ Pending: ${pendingItems.map((i) => i.name).join(', ')}\n`;
