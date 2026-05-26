@@ -67,21 +67,30 @@ export class WhatsAppService {
     const from = message.from;
     const sellerPhone = this.configService.get<string>('seller.phoneNumber') ?? '';
 
-    // Store inbound message
-    await this.prisma.message.create({
-      data: {
-        waMessageId: message.id,
-        from,
-        to: sellerPhone,
-        direction: 'INBOUND',
-        body: message.text?.body ?? message.button?.text ?? message.interactive?.button_reply?.title ?? null,
-        mediaId: message.image?.id ?? message.audio?.id ?? null,
-        mediaType: message.type === 'image' ? 'image' : message.type === 'audio' ? 'audio' : null,
-      },
-    });
-
-    // Route based on message type
+    // Route based on message type (DB operations are inside try-catch)
     try {
+      // Deduplicate: skip if this message was already processed (Meta retries)
+      const existing = await this.prisma.message.findUnique({
+        where: { waMessageId: message.id },
+      });
+      if (existing) {
+        this.logger.debug(`Skipping duplicate message ${message.id}`);
+        return;
+      }
+
+      // Store inbound message
+      await this.prisma.message.create({
+        data: {
+          waMessageId: message.id,
+          from,
+          to: sellerPhone,
+          direction: 'INBOUND',
+          body: message.text?.body ?? message.button?.text ?? message.interactive?.button_reply?.title ?? null,
+          mediaId: message.image?.id ?? message.audio?.id ?? null,
+          mediaType: message.type === 'image' ? 'image' : message.type === 'audio' ? 'audio' : null,
+        },
+      });
+
       // Check for interactive reply (button or list)
       if (message.type === 'interactive') {
         await this.handleInteractiveReply(from, message);
@@ -99,6 +108,7 @@ export class WhatsAppService {
       } else if (message.type === 'image' && message.image?.id) {
         await this.handleImageOrder(from, message.image.id, message.image.caption, senderName);
       }
+      // Ignore 'button' and other unhandled types silently (status updates, etc.)
     } catch (error: unknown) {
       const errMsg = error instanceof Error ? error.message : String(error);
       this.logger.error(`Error processing message from ${from}: ${errMsg}`);
