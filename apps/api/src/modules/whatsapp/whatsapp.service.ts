@@ -444,7 +444,7 @@ export class WhatsAppService {
 
     const order = await this.ordersService.findById(orderId);
     const message = buildPickupReady(
-      order.customer.name ?? '',
+      order.seller.storeName ?? order.seller.name ?? 'Your Shop',
       total,
       order.items ?? [],
     );

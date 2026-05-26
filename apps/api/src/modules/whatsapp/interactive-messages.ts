@@ -31,19 +31,45 @@ interface WhatsAppInteractiveButtons {
   };
 }
 
-export function buildOrderReviewList(orderId: string, items: OrderItem[]): WhatsAppInteractiveList {
-  const itemsList = items
-    .map(
-      (item, i) =>
-        `${i + 1}. ${item.name} — ${item.quantity} ${item.unit} @ ₹${item.estimatedPrice ?? '?'}`,
-    )
-    .join('\n');
+// ── Shared item list formatter ─────────────────────────────────────
 
+function formatItemLine(item: OrderItem, index: number, showStatus = false): string {
+  const qty = item.quantity > 1 ? `${item.quantity}x ` : '';
+  const price = item.estimatedPrice != null ? `₹${item.estimatedPrice}` : '—';
+
+  let line = `${index}. ${qty}${item.name} — ${item.unit ?? 'pcs'} @ ${price}`;
+
+  if (showStatus) {
+    if (item.status === 'FOUND' || item.status === 'REPLACEMENT_ACCEPTED') {
+      line += ' ✅';
+    } else if (item.status === 'NOT_FOUND' || item.status === 'REPLACEMENT_SUGGESTED') {
+      line += ' ❌';
+      if (item.replacementName) {
+        line += `\n   ⚠ Not available → ${item.replacementName}`;
+        if (item.replacementPrice != null) {
+          line += ` @ ₹${item.replacementPrice}`;
+        }
+      }
+    } else {
+      line += ' ⏳';
+    }
+  }
+
+  return line;
+}
+
+function formatItemsList(items: OrderItem[], showStatus = false): string {
+  return items.map((item, i) => formatItemLine(item, i + 1, showStatus)).join('\n');
+}
+
+// ── Order review (after AI parse) ──────────────────────────────────
+
+export function buildOrderReviewList(orderId: string, items: OrderItem[]): WhatsAppInteractiveList {
   return {
     type: 'list',
     header: { type: 'text', text: 'Your Order' },
     body: {
-      text: `Here's what we parsed:\n\n${itemsList}\n\nPlease review and confirm, or tap an item to edit.`,
+      text: `Here's what we parsed:\n\n${formatItemsList(items)}\n\nTap an item to edit or confirm:`,
     },
     footer: { text: 'SmartOrder — Your Local Shop' },
     action: {
@@ -54,7 +80,7 @@ export function buildOrderReviewList(orderId: string, items: OrderItem[]): Whats
           rows: [
             ...items.map((item) => ({
               id: `edit_${item.id}`,
-              title: `${item.name}`,
+              title: item.name,
               description: `${item.quantity} ${item.unit} — ₹${item.estimatedPrice ?? '?'}`,
             })),
             {
@@ -69,31 +95,26 @@ export function buildOrderReviewList(orderId: string, items: OrderItem[]): Whats
   };
 }
 
+// ── Replacement review (buyer sees after seller suggests replacements) ──
+
 export function buildReplacementReview(
   items: OrderItem[],
   notFoundItem: OrderItem,
   replacementName: string,
   replacementPrice: number,
 ): WhatsAppInteractiveList {
-  const itemsList = items
-    .map((item) => {
-      let emoji = '⏳ ';
-      if (item.id === notFoundItem.id) emoji = '❌ ';
-      else if (item.status === 'FOUND') emoji = '✅ ';
-
-      let line = `${emoji}${item.name} — ${item.quantity} ${item.unit ?? 'pcs'} @ ₹${item.estimatedPrice ?? '?'}`;
-      if (item.id === notFoundItem.id) {
-        line += `\n   ↳ Available: ${replacementName} @ ₹${replacementPrice}`;
-      }
-      return line;
-    })
-    .join('\n');
+  // Temporarily set replacement on the not-found item for formatting
+  const displayItems = items.map((i) =>
+    i.id === notFoundItem.id
+      ? { ...i, replacementName, replacementPrice, status: 'NOT_FOUND' as const }
+      : i,
+  );
 
   return {
     type: 'list',
-    header: { type: 'text', text: 'Item Unavailable' },
+    header: { type: 'text', text: 'Review & Finalize' },
     body: {
-      text: `"${notFoundItem.name}" is out of stock.\n\n📋 Your Order:\n${itemsList}\n\nAccept the replacement or skip this item.`,
+      text: `The seller has reviewed your order:\n\n${formatItemsList(displayItems, true)}\n\nAccept the replacement or skip this item.`,
     },
     footer: { text: 'SmartOrder — Your Local Shop' },
     action: {
@@ -119,10 +140,11 @@ export function buildReplacementReview(
   };
 }
 
+// ── Packing slip (seller view) ──────────────────────────────────────
+
 export function buildPackingSlip(orderId: string, items: OrderItem[]): WhatsAppInteractiveList {
   const pendingItems = items.filter(
-    (i) =>
-      i.status === 'PENDING' || i.status === 'REPLACEMENT_ACCEPTED',
+    (i) => i.status === 'PENDING' || i.status === 'REPLACEMENT_ACCEPTED',
   );
 
   const foundItems = items.filter((i) => i.status === 'FOUND');
@@ -132,7 +154,7 @@ export function buildPackingSlip(orderId: string, items: OrderItem[]): WhatsAppI
 
   let statusText = '';
   if (foundItems.length > 0) {
-    statusText += `✅ Found: ${foundItems.map((i) => i.name).join(', ')}\n`;
+    statusText += `✅ Found (${foundItems.length}): ${foundItems.map((i) => i.name).join(', ')}\n`;
   }
   if (notFoundItems.length > 0) {
     statusText += `❌ Missing:\n`;
@@ -145,7 +167,7 @@ export function buildPackingSlip(orderId: string, items: OrderItem[]): WhatsAppI
     }
   }
   if (pendingItems.length > 0) {
-    statusText += `⏳ Pending: ${pendingItems.map((i) => i.name).join(', ')}\n`;
+    statusText += `\n📋 Full order:\n${formatItemsList(items, true)}\n`;
   }
 
   const rows = pendingItems.map((item) => ({
@@ -154,11 +176,10 @@ export function buildPackingSlip(orderId: string, items: OrderItem[]): WhatsAppI
     description: `${item.quantity} ${item.unit} — ₹${item.estimatedPrice ?? '?'}`,
   }));
 
-  // Add finalize button
   rows.push({
     id: `finalize_${orderId}`,
     title: '📦 Finish Packing',
-    description: 'All items packed — ready for pickup',
+    description: 'All items packed — send for review',
   });
 
   return {
@@ -179,6 +200,8 @@ export function buildPackingSlip(orderId: string, items: OrderItem[]): WhatsAppI
     },
   };
 }
+
+// ── Pack item prompt (per-item found/not-found) ─────────────────────
 
 export function buildPackItemPrompt(item: OrderItem): WhatsAppInteractiveButtons {
   return {
@@ -202,14 +225,18 @@ export function buildPackItemPrompt(item: OrderItem): WhatsAppInteractiveButtons
   };
 }
 
-export function buildPickupReady(customerName: string, total: number, items: OrderItem[]): string {
-  const itemList = items
-    .filter((i) => i.status === 'FOUND' || i.status === 'REPLACEMENT_ACCEPTED')
-    .map(
-      (i) =>
-        `${i.name} — ${i.quantity} ${i.unit} @ ₹${i.actualPrice ?? i.estimatedPrice ?? '?'}`,
-    )
+// ── Pickup ready receipt ───────────────────────────────────────────
+
+export function buildPickupReady(storeName: string, total: number, items: OrderItem[]): string {
+  const activeItems = items.filter((i) => i.status !== 'REPLACEMENT_SKIPPED');
+
+  const itemList = activeItems
+    .map((i) => {
+      const qty = i.quantity > 1 ? `${i.quantity}x ` : '';
+      const price = i.actualPrice ?? i.estimatedPrice ?? 0;
+      return `${qty}${i.name} — ₹${price}`;
+    })
     .join('\n');
 
-  return `Hi ${customerName ?? 'there'}! 👋\n\nYour order is ready for pickup! 🛍️\n\n📋 Order Summary:\n${itemList}\n\n💰 Total: ₹${total}\n\nPlease visit the store at your convenience. Thank you for shopping with us!`;
+  return `*${storeName}*\n📋 Order Receipt\n\n${itemList}\n\n💰 *Total: ₹${total}*\n\n✅ Ready for Pickup!\nPlease visit the store at your convenience.`;
 }
