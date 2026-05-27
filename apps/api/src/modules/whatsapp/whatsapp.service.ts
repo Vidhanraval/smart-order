@@ -99,9 +99,17 @@ export class WhatsAppService {
 
       // Check for pending context (replacement response, edit, etc.)
       if (message.type === 'text' && message.text?.body) {
-        const handled = await this.handleContextualReply(from, message.text.body);
+        const text = message.text.body.trim();
+
+        // Detect greetings — reply with welcome message instead of parsing as order
+        if (this.isGreeting(text)) {
+          await this.sendGreeting(from, senderName);
+          return;
+        }
+
+        const handled = await this.handleContextualReply(from, text);
         if (!handled) {
-          await this.handleNewOrderInput(from, message.text.body, null, senderName);
+          await this.handleNewOrderInput(from, text, null, senderName);
         }
       } else if (message.type === 'audio' && message.audio?.id) {
         await this.handleAudioOrder(from, message.audio.id, senderName);
@@ -172,6 +180,40 @@ export class WhatsAppService {
     const parsed = await this.aiService.parseText(text);
     await this.createOrderAndSendReview(from, parsed, text, senderName);
   }
+
+  // ── Greeting detection ──────────────────────────────────────────
+
+  private readonly GREETINGS = [
+    'hi', 'hii', 'hiii', 'hello', 'hey', 'heyy', 'heyyy',
+    'namaste', 'namaskar', 'namaskaram', 'vanakkam',
+    'kaise ho', 'kaise hai', 'kaisi ho', 'kaisi hai',
+    'kya haal', 'kya haal hai', 'kesi ho', 'kaise ho aap',
+    'suprabhat', 'shubh prabhat', 'good morning', 'good afternoon', 'good evening',
+    'gd mrng', 'gm', 'gn', 'good night',
+    'ram ram', 'jai shri ram', 'jai shree ram', 'radhe radhe',
+    'salam', 'as-salamu alaykum', 'assalamualaikum', 'adaab',
+    'ola', 'hola', 'yo', 'yo yo', 'sup', 'wsg',
+    'aur batao', 'aur batao kya haal', 'kya chal raha',
+  ];
+
+  private isGreeting(text: string): boolean {
+    const cleaned = text.toLowerCase().replace(/[!?.]+$/, '').trim();
+    if (cleaned.length <= 1) return true;
+    return this.GREETINGS.some((g) => cleaned === g || cleaned.startsWith(g));
+  }
+
+  private async sendGreeting(to: string, senderName?: string): Promise<void> {
+    const name = senderName ? ` ${senderName} ji` : '';
+
+    await this.sendText(
+      to,
+      `🙏 *Namaste${name}!*\n\n` +
+      `Hamari dukaan mein aapka swagat hai. 🛒\n\n` +
+      `Kripya apni shopping list bhejein`,
+    );
+  }
+
+  // ── Audio & Image handlers ──────────────────────────────────────
 
   private async handleAudioOrder(from: string, mediaId: string, senderName?: string) {
     await this.sendText(from, '🎤 Transcribing your voice note...');
