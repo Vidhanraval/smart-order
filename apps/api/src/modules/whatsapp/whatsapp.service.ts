@@ -356,7 +356,7 @@ export class WhatsAppService {
       // confirm_<orderId> — Buyer confirms order
       if (replyId.startsWith('confirm_')) {
         const orderId = replyId.replace('confirm_', '');
-        await this.confirmOrder(orderId);
+        await this.confirmOrder(orderId, from);
         return;
       }
 
@@ -412,8 +412,17 @@ export class WhatsAppService {
 
   private readonly ORDER_TIMEOUT_MS = 3 * 60 * 1000; // 3 minutes
 
-  private async confirmOrder(orderId: string) {
-    const order = await this.ordersService.findById(orderId);
+  private async confirmOrder(orderId: string, buyerPhone: string) {
+    let order;
+    try {
+      order = await this.ordersService.findById(orderId);
+    } catch {
+      await this.sendText(
+        buyerPhone,
+        '⚠️ Order ab uplabdh nahi hai. Kripya nayi shopping list bhejkar nayi process shuru karein.',
+      );
+      return;
+    }
 
     // Check if order has expired (3 minutes since creation)
     const elapsed = Date.now() - order.createdAt.getTime();
