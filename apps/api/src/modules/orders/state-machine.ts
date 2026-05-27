@@ -5,16 +5,18 @@ export type OrderStatus =
   | 'PACKING'
   | 'AWAITING_REPLACEMENT'
   | 'READY_FOR_PICKUP'
-  | 'COMPLETED';
+  | 'COMPLETED'
+  | 'EXPIRED';
 
 const VALID_TRANSITIONS: Record<OrderStatus, OrderStatus[]> = {
   PARSING: ['REVIEWING'],
-  REVIEWING: ['SUBMITTED'],
+  REVIEWING: ['SUBMITTED', 'EXPIRED'],
   SUBMITTED: ['PACKING'],
   PACKING: ['AWAITING_REPLACEMENT', 'COMPLETED', 'READY_FOR_PICKUP'],
   AWAITING_REPLACEMENT: ['PACKING'],
   READY_FOR_PICKUP: ['COMPLETED'],
   COMPLETED: [],
+  EXPIRED: [],
 };
 
 const STATUS_LABELS: Record<OrderStatus, string> = {
@@ -25,6 +27,7 @@ const STATUS_LABELS: Record<OrderStatus, string> = {
   AWAITING_REPLACEMENT: 'Review suggested replacements',
   READY_FOR_PICKUP: 'Ready for pickup!',
   COMPLETED: 'Order completed',
+  EXPIRED: 'Order expired',
 };
 
 export function canTransition(from: OrderStatus, to: OrderStatus): boolean {

@@ -103,7 +103,7 @@ export class WhatsAppService {
 
         // Detect greetings — reply with welcome message instead of parsing as order
         if (this.isGreeting(text)) {
-          await this.sendGreeting(from, senderName);
+          await this.sendGreeting(from, text, senderName);
           return;
         }
 
@@ -182,34 +182,105 @@ export class WhatsAppService {
   }
 
   // ── Greeting detection ──────────────────────────────────────────
+  // Categorised so each greeting type gets a contextual reply
 
-  private readonly GREETINGS = [
+  private readonly GREETING_WELCOME = [
     'hi', 'hii', 'hiii', 'hello', 'hey', 'heyy', 'heyyy',
     'namaste', 'namaskar', 'namaskaram', 'vanakkam',
-    'kaise ho', 'kaise hai', 'kaisi ho', 'kaisi hai',
-    'kya haal', 'kya haal hai', 'kesi ho', 'kaise ho aap',
-    'suprabhat', 'shubh prabhat', 'good morning', 'good afternoon', 'good evening',
-    'gd mrng', 'gm', 'gn', 'good night',
     'ram ram', 'jai shri ram', 'jai shree ram', 'radhe radhe',
     'salam', 'as-salamu alaykum', 'assalamualaikum', 'adaab',
-    'ola', 'hola', 'yo', 'yo yo', 'sup', 'wsg',
+    'ola', 'hola',
+  ];
+
+  private readonly GREETING_WELLNESS = [
+    'kaise ho', 'kaise hai', 'kaisi ho', 'kaisi hai',
+    'kya haal', 'kya haal hai', 'kesi ho', 'kaise ho aap',
     'aur batao', 'aur batao kya haal', 'kya chal raha',
   ];
 
-  private isGreeting(text: string): boolean {
+  private readonly GREETING_MORNING = [
+    'good morning', 'suprabhat', 'shubh prabhat', 'gd mrng', 'gm',
+  ];
+
+  private readonly GREETING_AFTERNOON = [
+    'good afternoon',
+  ];
+
+  private readonly GREETING_EVENING = [
+    'good evening',
+  ];
+
+  private readonly GREETING_NIGHT = [
+    'good night', 'gn',
+  ];
+
+  private readonly GREETING_CASUAL = [
+    'yo', 'yo yo', 'sup', 'wsg',
+  ];
+
+  private readonly ALL_GREETINGS: string[] = [
+    ...this.GREETING_WELCOME,
+    ...this.GREETING_WELLNESS,
+    ...this.GREETING_MORNING,
+    ...this.GREETING_AFTERNOON,
+    ...this.GREETING_EVENING,
+    ...this.GREETING_NIGHT,
+    ...this.GREETING_CASUAL,
+  ];
+
+  private matchGreeting(text: string): string | null {
     const cleaned = text.toLowerCase().replace(/[!?.]+$/, '').trim();
-    if (cleaned.length <= 1) return true;
-    return this.GREETINGS.some((g) => cleaned === g || cleaned.startsWith(g));
+    if (cleaned.length <= 1) return 'welcome';
+    for (const g of this.ALL_GREETINGS) {
+      if (cleaned === g || cleaned.startsWith(g)) return g;
+    }
+    return null;
   }
 
-  private async sendGreeting(to: string, senderName?: string): Promise<void> {
-    const name = senderName ? ` ${senderName} ji` : '';
+  private isGreeting(text: string): boolean {
+    return this.matchGreeting(text) !== null;
+  }
 
+  private async sendGreeting(to: string, text: string, senderName?: string): Promise<void> {
+    const lower = text.toLowerCase().replace(/[!?.]+$/, '').trim();
+
+    if (this.GREETING_WELLNESS.some((g) => lower === g || lower.startsWith(g))) {
+      await this.sendText(to, '🙏 Main theek hoon, shukriya! Aap batao, aaj kya shopping karna chahoge?');
+      return;
+    }
+
+    if (this.GREETING_MORNING.some((g) => lower === g || lower.startsWith(g))) {
+      await this.sendText(to, '☀️ Shubh prabhat! aaj ka din subh ho aapka. Aaj kya shopping karna pasand karoge aap.');
+      return;
+    }
+
+    if (this.GREETING_AFTERNOON.some((g) => lower === g || lower.startsWith(g))) {
+      await this.sendText(to, '🌤️ Good afternoon! Kripya apni shopping list bhejein.');
+      return;
+    }
+
+    if (this.GREETING_EVENING.some((g) => lower === g || lower.startsWith(g))) {
+      await this.sendText(to, '🌅 Good evening! Aaj kya shopping karna pasand karoge aap.');
+      return;
+    }
+
+    if (this.GREETING_NIGHT.some((g) => lower === g || lower.startsWith(g))) {
+      await this.sendText(to, '🌙 Good night! Kal subah 9 baje hamari dukaan khulegi.');
+      return;
+    }
+
+    if (this.GREETING_CASUAL.some((g) => lower === g || lower.startsWith(g))) {
+      await this.sendText(to, '😄 Haan ji boliye! Kya shopping karna pasand karoge aaj?');
+      return;
+    }
+
+    // Default welcome (hi, hello, namaste, ram ram, salam, etc.)
+    const name = senderName ? ` ${senderName} ji` : '';
     await this.sendText(
       to,
       `🙏 *Namaste${name}!*\n\n` +
       `Hamari dukaan mein aapka swagat hai. 🛒\n\n` +
-      `Kripya apni shopping list bhejein`,
+      `Kripya apni shopping list bhejein, hum foran aapka order taiyar kar denge!`,
     );
   }
 
@@ -333,9 +404,23 @@ export class WhatsAppService {
 
   // ── Order actions ─────────────────────────────────────────────────
 
+  private readonly ORDER_TIMEOUT_MS = 3 * 60 * 1000; // 3 minutes
+
   private async confirmOrder(orderId: string) {
-    await this.ordersService.transitionStatus(orderId, 'SUBMITTED');
     const order = await this.ordersService.findById(orderId);
+
+    // Check if order has expired (3 minutes since creation)
+    const elapsed = Date.now() - order.createdAt.getTime();
+    if (elapsed > this.ORDER_TIMEOUT_MS) {
+      await this.ordersService.transitionStatus(orderId, 'EXPIRED');
+      await this.sendText(
+        order.customer.phoneNumber,
+        '⏰ Aapki shopping process ki samay seema samapt ho chuki hai.\nKripya nayi shopping list bhejkar nayi process shuru karein.',
+      );
+      return;
+    }
+
+    await this.ordersService.transitionStatus(orderId, 'SUBMITTED');
     const seller = order.seller;
 
     // Notify buyer
