@@ -412,7 +412,12 @@ export class WhatsAppService {
     // Check if order has expired (3 minutes since creation)
     const elapsed = Date.now() - order.createdAt.getTime();
     if (elapsed > this.ORDER_TIMEOUT_MS) {
-      await this.ordersService.transitionStatus(orderId, 'EXPIRED');
+      try {
+        await this.ordersService.transitionStatus(orderId, 'EXPIRED');
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err);
+        this.logger.warn(`Could not mark order ${orderId} as EXPIRED (may already be expired): ${msg}`);
+      }
       await this.sendText(
         order.customer.phoneNumber,
         '⏰ Aapki shopping process ki samay seema samapt ho chuki hai.\nKripya nayi shopping list bhejkar nayi process shuru karein.',
