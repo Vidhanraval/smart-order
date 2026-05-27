@@ -340,65 +340,71 @@ export class WhatsAppService {
 
     this.logger.log(`Interactive reply: ${replyId} from ${from}`);
 
-    // edit_<itemId> — Buyer wants to edit an item
-    if (replyId.startsWith('edit_')) {
-      const itemId = replyId.replace('edit_', '');
-      const item = await this.prisma.orderItem.findUnique({ where: { id: itemId } });
-      await this.sendText(
-        from,
-        `Editing: ${item?.name ?? 'item'}\n\nPlease reply with:\nName, Quantity, Unit, Price\n\nExample: "Atta, 5, kg, 300"`,
-      );
-      this.pendingActions.set(from, { action: 'edit', itemId });
-      return;
-    }
+    try {
+      // edit_<itemId> — Buyer wants to edit an item
+      if (replyId.startsWith('edit_')) {
+        const itemId = replyId.replace('edit_', '');
+        const item = await this.prisma.orderItem.findUnique({ where: { id: itemId } });
+        await this.sendText(
+          from,
+          `Editing: ${item?.name ?? 'item'}\n\nPlease reply with:\nName, Quantity, Unit, Price\n\nExample: "Atta, 5, kg, 300"`,
+        );
+        this.pendingActions.set(from, { action: 'edit', itemId });
+        return;
+      }
 
-    // confirm_<orderId> — Buyer confirms order
-    if (replyId.startsWith('confirm_')) {
-      const orderId = replyId.replace('confirm_', '');
-      await this.confirmOrder(orderId);
-      return;
-    }
+      // confirm_<orderId> — Buyer confirms order
+      if (replyId.startsWith('confirm_')) {
+        const orderId = replyId.replace('confirm_', '');
+        await this.confirmOrder(orderId);
+        return;
+      }
 
-    // found_<itemId> — Seller found the item
-    if (replyId.startsWith('found_')) {
-      const itemId = replyId.replace('found_', '');
-      await this.markItemFound(from, itemId);
-      return;
-    }
+      // found_<itemId> — Seller found the item
+      if (replyId.startsWith('found_')) {
+        const itemId = replyId.replace('found_', '');
+        await this.markItemFound(from, itemId);
+        return;
+      }
 
-    // notfound_<itemId> — Seller didn't find the item
-    if (replyId.startsWith('notfound_')) {
-      const itemId = replyId.replace('notfound_', '');
-      await this.markItemNotFound(from, itemId);
-      return;
-    }
+      // notfound_<itemId> — Seller didn't find the item
+      if (replyId.startsWith('notfound_')) {
+        const itemId = replyId.replace('notfound_', '');
+        await this.markItemNotFound(from, itemId);
+        return;
+      }
 
-    // accept_<itemId> — Buyer accepts replacement
-    if (replyId.startsWith('accept_')) {
-      const itemId = replyId.replace('accept_', '');
-      await this.acceptReplacement(from, itemId);
-      return;
-    }
+      // accept_<itemId> — Buyer accepts replacement
+      if (replyId.startsWith('accept_')) {
+        const itemId = replyId.replace('accept_', '');
+        await this.acceptReplacement(from, itemId);
+        return;
+      }
 
-    // skip_<itemId> — Buyer skips replacement
-    if (replyId.startsWith('skip_')) {
-      const itemId = replyId.replace('skip_', '');
-      await this.skipReplacement(from, itemId);
-      return;
-    }
+      // skip_<itemId> — Buyer skips replacement
+      if (replyId.startsWith('skip_')) {
+        const itemId = replyId.replace('skip_', '');
+        await this.skipReplacement(from, itemId);
+        return;
+      }
 
-    // pack_<itemId> — Seller wants to pack this item
-    if (replyId.startsWith('pack_')) {
-      const itemId = replyId.replace('pack_', '');
-      await this.promptPackItem(from, itemId);
-      return;
-    }
+      // pack_<itemId> — Seller wants to pack this item
+      if (replyId.startsWith('pack_')) {
+        const itemId = replyId.replace('pack_', '');
+        await this.promptPackItem(from, itemId);
+        return;
+      }
 
-    // finalize_<orderId> — Seller finished packing
-    if (replyId.startsWith('finalize_')) {
-      const orderId = replyId.replace('finalize_', '');
-      await this.finalizeOrder(from, orderId);
-      return;
+      // finalize_<orderId> — Seller finished packing
+      if (replyId.startsWith('finalize_')) {
+        const orderId = replyId.replace('finalize_', '');
+        await this.finalizeOrder(from, orderId);
+        return;
+      }
+    } catch (error: unknown) {
+      const msg = error instanceof Error ? error.message : String(error);
+      this.logger.error(`Action failed for replyId=${replyId} from ${from}: ${msg}`);
+      await this.sendText(from, '⚠️ Kuch galat ho gaya. Kripya dubara try karein ya nayi process shuru karein.');
     }
   }
 
@@ -426,27 +432,26 @@ export class WhatsAppService {
     }
 
     await this.ordersService.transitionStatus(orderId, 'SUBMITTED');
-    const seller = order.seller;
 
-    // Notify buyer
-    await this.sendText(
+    // Fire buyer + seller notifications in parallel — seller gets instant alert
+    const buyerMsg = this.sendText(
       order.customer.phoneNumber,
       `✅ Order confirmed! Your order has been sent to the shop.\n\nWe'll notify you once packing begins.`,
     );
 
-    // Notify seller with packing slip
-    await this.sendText(
-      seller.phoneNumber,
+    const sellerMsg = this.sendText(
+      order.seller.phoneNumber,
       `🛒 New Order from ${order.customer.name ?? order.customer.phoneNumber}!\n\n` +
         `Items: ${order.items?.length ?? 0}\n` +
         `Order #${order.id.slice(-6).toUpperCase()}`,
     );
 
-    // Start packing
+    await Promise.all([buyerMsg, sellerMsg]);
+
+    // Start packing and send packing slip
     await this.ordersService.transitionStatus(orderId, 'PACKING');
-    const updatedOrder = await this.ordersService.findById(orderId);
-    const packingSlip = buildPackingSlip(orderId, updatedOrder.items ?? []);
-    await this.sendInteractive(seller.phoneNumber, packingSlip);
+    const packingSlip = buildPackingSlip(orderId, order.items ?? []);
+    await this.sendInteractive(order.seller.phoneNumber, packingSlip);
   }
 
   private async promptPackItem(sellerPhone: string, itemId: string) {
