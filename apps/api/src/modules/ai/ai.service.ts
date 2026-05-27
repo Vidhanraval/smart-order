@@ -85,16 +85,18 @@ export class AiService {
   async parseText(text: string): Promise<ParsedOrderResult> {
     const items: ParsedOrderItem[] = [];
 
-    // Split by common separators
+    // Split by common separators first
     const parts = text.split(/[,|&+\n]+/);
 
-    for (const part of parts) {
-      const trimmed = part.trim();
-      if (!trimmed) continue;
-
-      const item = this.parseSingleItem(trimmed);
-      if (item) {
-        items.push(item);
+    for (let part of parts) {
+      part = part.trim();
+      // Extract items one-by-one from the part — handles "1 kg atta 1kg chawal"
+      // without requiring commas between items
+      while (part) {
+        const result = this.extractItem(part);
+        if (!result) break;
+        items.push(result.item);
+        part = result.remaining.trim();
       }
     }
 
@@ -104,44 +106,48 @@ export class AiService {
     };
   }
 
-  private parseSingleItem(text: string): ParsedOrderItem | null {
-    // Pattern: "quantity unit item_name" e.g., "1 kg atta", "500g sugar", "2 Amul butter"
-    // Also: "item_name quantity unit" e.g., "atta 1 kg"
-    // Also: just "item_name"
-
+  private extractItem(text: string): { item: ParsedOrderItem; remaining: string } | null {
     const lower = text.toLowerCase().trim();
+    if (!lower) return null;
 
-    // Try: number + unit + item
+    // Try: number + unit + item_name — e.g., "1 kg atta", "500g sugar"
     const qtyFirst = lower.match(/^(\d+\.?\d*)\s*(kg|kgs|kilo|g|grams?|gm|ml|ltr?|liters?|liter|pcs|packet|pack|dozen|piece)\s+(.+)/);
     if (qtyFirst) {
       const rawQty = parseFloat(qtyFirst[1]!);
       const rawUnit = qtyFirst[2]!;
-      const itemName = qtyFirst[3]!.trim();
+      const rest = qtyFirst[3]!.trim();
+
+      // rest may contain more items: "atta 1kg chawal" → split at next quantity
+      const nextQtyIdx = rest.search(/\s+\d+\.?\d*\s*(?:kg|kgs|kilo|g|grams?|gm|ml|ltr?|liters?|liter|pcs|packet|pack|dozen|piece|$)/);
+      const itemName = nextQtyIdx >= 0 ? rest.substring(0, nextQtyIdx).trim() : rest;
+      const remaining = nextQtyIdx >= 0 ? rest.substring(nextQtyIdx).trim() : '';
+
       const { qty, unit } = this.normalizeQtyUnit(rawQty, rawUnit);
       const matched = this.matchItem(itemName, unit);
       return {
-        name: matched.name,
-        quantity: qty,
-        unit,
-        estimatedPrice: matched.price, // per-unit price
+        item: { name: matched.name, quantity: qty, unit, estimatedPrice: matched.price },
+        remaining,
       };
     }
 
-    // Try: number + item (no unit, e.g., "2 amul butter", "2 eggs")
+    // Try: number + item (no unit) — e.g., "2 eggs", "2 amul butter"
     const qtyNoUnit = lower.match(/^(\d+\.?\d*)\s+(.+)/);
     if (qtyNoUnit) {
       const qty = parseFloat(qtyNoUnit[1]!);
-      const itemName = qtyNoUnit[2]!.trim();
+      const rest = qtyNoUnit[2]!.trim();
+
+      const nextQtyIdx = rest.search(/\s+\d+\.?\d*/);
+      const itemName = nextQtyIdx >= 0 ? rest.substring(0, nextQtyIdx).trim() : rest;
+      const remaining = nextQtyIdx >= 0 ? rest.substring(nextQtyIdx).trim() : '';
+
       const matched = this.matchItem(itemName, 'pcs');
       return {
-        name: matched.name,
-        quantity: qty,
-        unit: matched.unit,
-        estimatedPrice: matched.price, // per-unit price
+        item: { name: matched.name, quantity: qty, unit: matched.unit, estimatedPrice: matched.price },
+        remaining,
       };
     }
 
-    // Try: item name + number + unit (e.g., "atta 1 kg")
+    // Try: item name + number + (optional) unit — e.g., "atta 1 kg"
     const nameFirst = lower.match(/^(.+?)\s+(\d+\.?\d*)\s*(kg|kgs|kilo|g|grams?|gm|ml|ltr?|liters?|liter|pcs|packet|pack|dozen|piece)?$/);
     if (nameFirst) {
       const itemName = nameFirst[1]!.trim();
@@ -150,10 +156,8 @@ export class AiService {
       const { qty, unit } = this.normalizeQtyUnit(rawQty, rawUnit);
       const matched = this.matchItem(itemName, unit);
       return {
-        name: matched.name,
-        quantity: qty,
-        unit,
-        estimatedPrice: matched.price, // per-unit price
+        item: { name: matched.name, quantity: qty, unit, estimatedPrice: matched.price },
+        remaining: '',
       };
     }
 
@@ -161,10 +165,8 @@ export class AiService {
     if (lower.length > 2) {
       const matched = this.matchItem(lower, 'pcs');
       return {
-        name: matched.name,
-        quantity: 1,
-        unit: matched.unit,
-        estimatedPrice: matched.price,
+        item: { name: matched.name, quantity: 1, unit: matched.unit, estimatedPrice: matched.price },
+        remaining: '',
       };
     }
 
