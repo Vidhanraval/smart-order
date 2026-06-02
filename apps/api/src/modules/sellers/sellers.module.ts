@@ -17,13 +17,15 @@ export class SellersModule implements OnModuleInit {
   ) {}
 
   async onModuleInit() {
+    // Seed a fallback seller if SELLER_PHONE_NUMBER is configured (backward compat)
+    // New sellers are auto-created from webhook metadata on first message
     const sellerPhone = this.configService.get<string>('seller.phoneNumber') ?? '';
-    if (!sellerPhone) {
-      this.logger.warn('SELLER_PHONE_NUMBER not configured — skipping seller seed');
-      return;
+    if (sellerPhone) {
+      const phoneNumberId = this.configService.get<string>('whatsapp.phoneNumberId') ?? undefined;
+      const seller = await this.sellersService.upsert(sellerPhone, phoneNumberId, 'Local Shop');
+      this.logger.log(`Fallback seller ready: ${seller.phoneNumber}`);
+    } else {
+      this.logger.log('No SELLER_PHONE_NUMBER configured — sellers will be auto-created from incoming webhook messages');
     }
-
-    const seller = await this.sellersService.findOrCreate(sellerPhone, 'Local Shop');
-    this.logger.log(`Seller ready: ${seller.phoneNumber} (${seller.id})`);
   }
 }

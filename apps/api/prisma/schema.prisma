@@ -17,13 +17,14 @@ model Customer {
 }
 
 model Seller {
-  id          String    @id @default(uuid())
-  phoneNumber String    @unique
-  name        String?
-  storeName   String?
-  orders      Order[]
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
+  id            String    @id @default(uuid())
+  phoneNumber   String    @unique
+  phoneNumberId String?   // WhatsApp Cloud API phone_number_id for outbound messages
+  name          String?
+  storeName     String?
+  orders        Order[]
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
 }
 
 model Order {

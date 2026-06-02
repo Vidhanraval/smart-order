@@ -53,19 +53,41 @@ export class WhatsAppService {
     for (const entry of payload.entry) {
       for (const change of entry.changes) {
         if (change.field !== 'messages') continue;
-        const { messages, contacts } = change.value;
+        const { messages, contacts, metadata } = change.value;
         if (!messages || messages.length === 0) continue;
 
+        // Extract which business number the buyer messaged
+        const sellerPhone = metadata?.display_phone_number ?? '';
+        const sellerPhoneNumberId = metadata?.phone_number_id ?? '';
+
         for (const message of messages) {
-          await this.processMessage(message, contacts?.[0]?.profile?.name);
+          await this.processMessage(
+            message,
+            contacts?.[0]?.profile?.name,
+            sellerPhone,
+            sellerPhoneNumberId,
+          );
         }
       }
     }
   }
 
-  private async processMessage(message: WhatsAppMessage, senderName?: string): Promise<void> {
+  private async processMessage(
+    message: WhatsAppMessage,
+    senderName?: string,
+    sellerPhone?: string,
+    sellerPhoneNumberId?: string,
+  ): Promise<void> {
     const from = message.from;
-    const sellerPhone = this.configService.get<string>('seller.phoneNumber') ?? '';
+
+    // Resolve seller: prefer metadata from webhook, fall back to config
+    const resolvedSellerPhone = sellerPhone || (this.configService.get<string>('seller.phoneNumber') ?? '');
+    const resolvedPhoneNumberId = sellerPhoneNumberId || (this.configService.get<string>('whatsapp.phoneNumberId') ?? '');
+
+    // Auto-create / update seller in DB (upsert by phone, store phoneNumberId)
+    if (resolvedSellerPhone) {
+      await this.sellersService.upsert(resolvedSellerPhone, resolvedPhoneNumberId, 'Local Shop');
+    }
 
     // Route based on message type (DB operations are inside try-catch)
     try {
@@ -83,7 +105,7 @@ export class WhatsAppService {
         data: {
           waMessageId: message.id,
           from,
-          to: sellerPhone,
+          to: resolvedSellerPhone,
           direction: 'INBOUND',
           body: message.text?.body ?? message.button?.text ?? message.interactive?.button_reply?.title ?? null,
           mediaId: message.image?.id ?? message.audio?.id ?? null,
@@ -93,7 +115,7 @@ export class WhatsAppService {
 
       // Check for interactive reply (button or list)
       if (message.type === 'interactive') {
-        await this.handleInteractiveReply(from, message);
+        await this.handleInteractiveReply(from, message, resolvedPhoneNumberId);
         return;
       }
 
@@ -103,30 +125,67 @@ export class WhatsAppService {
 
         // Detect greetings — reply with welcome message instead of parsing as order
         if (this.isGreeting(text)) {
-          await this.sendGreeting(from, text, senderName);
+          await this.sendGreeting(from, text, senderName, resolvedPhoneNumberId);
           return;
         }
 
-        const handled = await this.handleContextualReply(from, text);
+        // Detect seller registration: "join seller, Store Name"
+        if (this.isJoinSeller(text)) {
+          await this.handleJoinSeller(from, text);
+          return;
+        }
+
+        // Extract store name prefix if present: "StoreName: actual items..."
+        const storePrefix = this.extractStorePrefix(text);
+        let orderSellerPhone = resolvedSellerPhone;
+        let orderPhoneNumberId = resolvedPhoneNumberId;
+
+        if (storePrefix) {
+          // Look up seller by store name
+          const matchedSeller = await this.sellersService.findByStoreName(storePrefix.storeName);
+          if (matchedSeller) {
+            orderSellerPhone = matchedSeller.phoneNumber;
+            orderPhoneNumberId = matchedSeller.phoneNumberId ?? resolvedPhoneNumberId;
+            this.logger.log(`Store prefix matched: "${storePrefix.storeName}" → ${orderSellerPhone}`);
+          } else {
+            // Unknown store — send helpful message
+            await this.sendText(
+              from,
+              `❓ *"${storePrefix.storeName}"* store not found.\n\n` +
+                `Please check the store name or just type your shopping list directly.`,
+              resolvedPhoneNumberId,
+            );
+            return;
+          }
+        }
+
+        const handled = await this.handleContextualReply(from, text, resolvedPhoneNumberId);
         if (!handled) {
-          await this.handleNewOrderInput(from, text, null, senderName);
+          await this.handleNewOrderInput(
+            from,
+            storePrefix?.text ?? text,
+            null,
+            senderName,
+            orderSellerPhone,
+            orderPhoneNumberId,
+          );
         }
       } else if (message.type === 'audio' && message.audio?.id) {
-        await this.handleAudioOrder(from, message.audio.id, senderName);
+        await this.handleAudioOrder(from, message.audio.id, senderName, resolvedSellerPhone, resolvedPhoneNumberId);
       } else if (message.type === 'image' && message.image?.id) {
-        await this.handleImageOrder(from, message.image.id, message.image.caption, senderName);
+        await this.handleImageOrder(from, message.image.id, message.image.caption, senderName, resolvedSellerPhone, resolvedPhoneNumberId);
       }
       // Ignore 'button' and other unhandled types silently (status updates, etc.)
     } catch (error: unknown) {
       const errMsg = error instanceof Error ? error.message : String(error);
       this.logger.error(`Error processing message from ${from}: ${errMsg}`);
-      await this.sendText(from, 'Sorry, something went wrong. Please try again or contact the shop directly.');
+      await this.sendText(from, 'Sorry, something went wrong. Please try again or contact the shop directly.', resolvedPhoneNumberId);
     }
   }
 
   // ── New order input handlers ──────────────────────────────────────
 
-  private async handleContextualReply(from: string, text: string): Promise<boolean> {
+  private async handleContextualReply(from: string, text: string, phoneNumberId?: string): Promise<boolean> {
     // Check for pending action
     const pending = this.pendingActions.get(from);
     if (!pending) return false;
@@ -134,7 +193,7 @@ export class WhatsAppService {
     this.pendingActions.delete(from);
 
     if (pending.action === 'replacement') {
-      await this.handleSellerReplacement(from, pending.itemId, text);
+      await this.handleSellerReplacement(from, pending.itemId, text, phoneNumberId);
       return true;
     }
 
@@ -159,10 +218,10 @@ export class WhatsAppService {
 
       if (item) {
         const reviewList = buildOrderReviewList(item.orderId, item.order.items ?? []);
-        await this.sendInteractive(from, reviewList);
+        await this.sendInteractive(from, reviewList, phoneNumberId);
       }
 
-      await this.sendText(from, `✅ Updated to: ${name}, ${quantity} ${unit}, ₹${price}`);
+      await this.sendText(from, `✅ Updated to: ${name}, ${quantity} ${unit}, ₹${price}`, phoneNumberId);
       return true;
     }
 
@@ -174,11 +233,13 @@ export class WhatsAppService {
     text: string,
     mediaUrl: string | null,
     senderName?: string,
+    sellerPhone?: string,
+    phoneNumberId?: string,
   ) {
-    await this.sendText(from, '🔍 Parsing your order... Please wait a moment.');
+    await this.sendText(from, '🔍 Parsing your order... Please wait a moment.', phoneNumberId);
 
     const parsed = await this.aiService.parseText(text);
-    await this.createOrderAndSendReview(from, parsed, text, senderName);
+    await this.createOrderAndSendReview(from, parsed, text, senderName, sellerPhone, phoneNumberId);
   }
 
   // ── Greeting detection ──────────────────────────────────────────
@@ -241,39 +302,39 @@ export class WhatsAppService {
     return this.matchGreeting(text) !== null;
   }
 
-  private async sendGreeting(to: string, text: string, senderName?: string): Promise<void> {
+  private async sendGreeting(to: string, text: string, senderName?: string, phoneNumberId?: string): Promise<void> {
     // Ensure the buyer's number is stored in the DB even if they only send a greeting
     await this.customersService.findOrCreate(to, senderName);
 
     const lower = text.toLowerCase().replace(/[!?.]+$/, '').trim();
 
     if (this.GREETING_WELLNESS.some((g) => lower === g || lower.startsWith(g))) {
-      await this.sendText(to, '🙏 Main theek hoon, shukriya! Aap batao, aaj kya shopping karna chahoge?');
+      await this.sendText(to, '🙏 Main theek hoon, shukriya! Aap batao, aaj kya shopping karna chahoge?', phoneNumberId);
       return;
     }
 
     if (this.GREETING_MORNING.some((g) => lower === g || lower.startsWith(g))) {
-      await this.sendText(to, '☀️ Shubh prabhat! aaj ka din subh ho aapka. Aaj kya shopping karna pasand karoge aap.');
+      await this.sendText(to, '☀️ Shubh prabhat! aaj ka din subh ho aapka. Aaj kya shopping karna pasand karoge aap.', phoneNumberId);
       return;
     }
 
     if (this.GREETING_AFTERNOON.some((g) => lower === g || lower.startsWith(g))) {
-      await this.sendText(to, '🌤️ Good afternoon! Kripya apni shopping list bhejein.');
+      await this.sendText(to, '🌤️ Good afternoon! Kripya apni shopping list bhejein.', phoneNumberId);
       return;
     }
 
     if (this.GREETING_EVENING.some((g) => lower === g || lower.startsWith(g))) {
-      await this.sendText(to, '🌅 Good evening! Aaj kya shopping karna pasand karoge aap.');
+      await this.sendText(to, '🌅 Good evening! Aaj kya shopping karna pasand karoge aap.', phoneNumberId);
       return;
     }
 
     if (this.GREETING_NIGHT.some((g) => lower === g || lower.startsWith(g))) {
-      await this.sendText(to, '🌙 Good night! Kal subah 9 baje hamari dukaan khulegi.');
+      await this.sendText(to, '🌙 Good night! Kal subah 9 baje hamari dukaan khulegi.', phoneNumberId);
       return;
     }
 
     if (this.GREETING_CASUAL.some((g) => lower === g || lower.startsWith(g))) {
-      await this.sendText(to, '😄 Haan ji boliye! Kya shopping karna pasand karoge aaj?');
+      await this.sendText(to, '😄 Haan ji boliye! Kya shopping karna pasand karoge aaj?', phoneNumberId);
       return;
     }
 
@@ -284,17 +345,84 @@ export class WhatsAppService {
       `🙏 *Namaste${name}!*\n\n` +
       `Hamari dukaan mein aapka swagat hai. 🛒\n\n` +
       `Kripya apni shopping list bhejein, hum foran aapka order taiyar kar denge!`,
+      phoneNumberId,
     );
+  }
+
+  // ── Seller registration — "join seller, Store Name" ──────────────
+
+  private readonly JOIN_SELLER_PATTERNS = [
+    /^join\s+(?:as\s+)?seller[,:\s]+(.+)$/i,
+    /^register\s+(?:as\s+)?seller[,:\s]+(.+)$/i,
+  ];
+
+  private isJoinSeller(text: string): boolean {
+    return this.JOIN_SELLER_PATTERNS.some((p) => p.test(text.trim()));
+  }
+
+  private async handleJoinSeller(from: string, text: string): Promise<void> {
+    let storeName = 'Local Shop';
+
+    for (const pattern of this.JOIN_SELLER_PATTERNS) {
+      const match = text.trim().match(pattern);
+      if (match?.[1]) {
+        storeName = match[1].trim();
+        break;
+      }
+    }
+
+    // Use the seller's WhatsApp Business number to register them
+    const seller = await this.sellersService.upsert(from, undefined, storeName);
+    this.logger.log(`Seller registered/updated via WhatsApp: ${from} → ${storeName} (${seller.id})`);
+
+    await this.sendText(
+      from,
+      `✅ *Registration Successful!*\n\n` +
+        `Welcome, *${storeName}*! 🎉\n\n` +
+        `Aap seller ke roop mein register ho gaye hain. Ab buyers aapka naam lekar order bhejenge:\n\n` +
+        `📝 _${storeName}: Atta 5kg, Chawal 3kg_\n\n` +
+        `Jab koi buyer order confirm karega, aapko packing slip yahi bheji jayegi.\n\n` +
+        `Happy selling! 🛒`,
+    );
+  }
+
+  // ── Store name prefix extraction ─────────────────────────────────
+
+  /**
+   * Detects "StoreName: rest of order" prefix.
+   * Returns the store name and remaining text for routing.
+   */
+  private extractStorePrefix(text: string): { storeName: string; text: string } | null {
+    // Match "StoreName: rest"
+    const match = text.match(/^(.+?)\s*[:]\s*(.+)$/);
+    if (!match) return null;
+
+    const storeName = match[1]!.trim();
+    const rest = match[2]!.trim();
+
+    // Quick check: if the prefix looks like a single item (Qty Unit Name),
+    // it's probably not a store name — skip
+    if (/^\d/.test(storeName)) return null;
+    if (rest.length < 2) return null;
+
+    this.logger.debug(`Detected store prefix: "${storeName}" → rest: "${rest}"`);
+    return { storeName, text: rest };
   }
 
   // ── Audio & Image handlers ──────────────────────────────────────
 
-  private async handleAudioOrder(from: string, mediaId: string, senderName?: string) {
-    await this.sendText(from, '🎤 Transcribing your voice note...');
+  private async handleAudioOrder(
+    from: string,
+    mediaId: string,
+    senderName?: string,
+    sellerPhone?: string,
+    phoneNumberId?: string,
+  ) {
+    await this.sendText(from, '🎤 Transcribing your voice note...', phoneNumberId);
 
     const audioBuffer = await this.downloadMedia(mediaId);
     const parsed = await this.aiService.parseVoiceNote(audioBuffer);
-    await this.createOrderAndSendReview(from, parsed, null, senderName);
+    await this.createOrderAndSendReview(from, parsed, null, senderName, sellerPhone, phoneNumberId);
   }
 
   private async handleImageOrder(
@@ -302,13 +430,15 @@ export class WhatsAppService {
     mediaId: string,
     caption?: string,
     senderName?: string,
+    sellerPhone?: string,
+    phoneNumberId?: string,
   ) {
-    await this.sendText(from, '📷 Reading your shopping list...');
+    await this.sendText(from, '📷 Reading your shopping list...', phoneNumberId);
 
     const imageBuffer = await this.downloadMedia(mediaId);
     const imageUrl = `data:image/jpeg;base64,${imageBuffer.toString('base64')}`;
     const parsed = await this.aiService.parseImage(imageUrl, caption);
-    await this.createOrderAndSendReview(from, parsed, caption ?? null, senderName);
+    await this.createOrderAndSendReview(from, parsed, caption ?? null, senderName, sellerPhone, phoneNumberId);
   }
 
   private async createOrderAndSendReview(
@@ -316,10 +446,14 @@ export class WhatsAppService {
     parsed: { items: Array<{ name: string; quantity: number; unit: string; estimatedPrice: number }>; detectedLanguage: string },
     originalInput: string | null,
     senderName?: string,
+    sellerPhone?: string,
+    phoneNumberId?: string,
   ) {
-    const sellerPhone = this.configService.get<string>('seller.phoneNumber') ?? '';
+    const resolvedSellerPhone = sellerPhone || (this.configService.get<string>('seller.phoneNumber') ?? '');
+    const resolvedPhoneNumberId = phoneNumberId || (this.configService.get<string>('whatsapp.phoneNumberId') ?? '');
+
     const customer = await this.customersService.findOrCreate(from, senderName);
-    const seller = await this.sellersService.findOrCreate(sellerPhone, 'Local Shop');
+    const seller = await this.sellersService.upsert(resolvedSellerPhone, resolvedPhoneNumberId, 'Local Shop');
 
     const order = await this.ordersService.createFromParsed(
       customer.id,
@@ -329,12 +463,12 @@ export class WhatsAppService {
     );
 
     const reviewList = buildOrderReviewList(order.id, order.items ?? []);
-    await this.sendInteractive(from, reviewList);
+    await this.sendInteractive(from, reviewList, resolvedPhoneNumberId);
   }
 
   // ── Interactive reply handler ─────────────────────────────────────
 
-  private async handleInteractiveReply(from: string, message: WhatsAppMessage) {
+  private async handleInteractiveReply(from: string, message: WhatsAppMessage, phoneNumberId?: string) {
     const replyId =
       message.interactive?.button_reply?.id ??
       message.interactive?.list_reply?.id;
@@ -351,6 +485,7 @@ export class WhatsAppService {
         await this.sendText(
           from,
           `Editing: ${item?.name ?? 'item'}\n\nPlease reply with:\nName, Quantity, Unit, Price\n\nExample: "Atta, 5, kg, 300"`,
+          phoneNumberId,
         );
         this.pendingActions.set(from, { action: 'edit', itemId });
         return;
@@ -359,55 +494,55 @@ export class WhatsAppService {
       // confirm_<orderId> — Buyer confirms order
       if (replyId.startsWith('confirm_')) {
         const orderId = replyId.replace('confirm_', '');
-        await this.confirmOrder(orderId, from);
+        await this.confirmOrder(orderId, from, phoneNumberId);
         return;
       }
 
       // found_<itemId> — Seller found the item
       if (replyId.startsWith('found_')) {
         const itemId = replyId.replace('found_', '');
-        await this.markItemFound(from, itemId);
+        await this.markItemFound(from, itemId, phoneNumberId);
         return;
       }
 
       // notfound_<itemId> — Seller didn't find the item
       if (replyId.startsWith('notfound_')) {
         const itemId = replyId.replace('notfound_', '');
-        await this.markItemNotFound(from, itemId);
+        await this.markItemNotFound(from, itemId, phoneNumberId);
         return;
       }
 
       // accept_<itemId> — Buyer accepts replacement
       if (replyId.startsWith('accept_')) {
         const itemId = replyId.replace('accept_', '');
-        await this.acceptReplacement(from, itemId);
+        await this.acceptReplacement(from, itemId, phoneNumberId);
         return;
       }
 
       // skip_<itemId> — Buyer skips replacement
       if (replyId.startsWith('skip_')) {
         const itemId = replyId.replace('skip_', '');
-        await this.skipReplacement(from, itemId);
+        await this.skipReplacement(from, itemId, phoneNumberId);
         return;
       }
 
       // pack_<itemId> — Seller wants to pack this item
       if (replyId.startsWith('pack_')) {
         const itemId = replyId.replace('pack_', '');
-        await this.promptPackItem(from, itemId);
+        await this.promptPackItem(from, itemId, phoneNumberId);
         return;
       }
 
       // finalize_<orderId> — Seller finished packing
       if (replyId.startsWith('finalize_')) {
         const orderId = replyId.replace('finalize_', '');
-        await this.finalizeOrder(from, orderId);
+        await this.finalizeOrder(from, orderId, phoneNumberId);
         return;
       }
     } catch (error: unknown) {
       const msg = error instanceof Error ? error.message : String(error);
       this.logger.error(`Action failed for replyId=${replyId} from ${from}: ${msg}`);
-      await this.sendText(from, '⚠️ Kuch galat ho gaya. Kripya dubara try karein ya nayi process shuru karein.');
+      await this.sendText(from, '⚠️ Kuch galat ho gaya. Kripya dubara try karein ya nayi process shuru karein.', phoneNumberId);
     }
   }
 
@@ -415,7 +550,7 @@ export class WhatsAppService {
 
   private readonly ORDER_TIMEOUT_MS = 3 * 60 * 1000; // 3 minutes
 
-  private async confirmOrder(orderId: string, buyerPhone: string) {
+  private async confirmOrder(orderId: string, buyerPhone: string, phoneNumberId?: string) {
     let order;
     try {
       order = await this.ordersService.findById(orderId);
@@ -423,9 +558,13 @@ export class WhatsAppService {
       await this.sendText(
         buyerPhone,
         '⚠️ Order ab uplabdh nahi hai. Kripya nayi shopping list bhejkar nayi process shuru karein.',
+        phoneNumberId,
       );
       return;
     }
+
+    // Use seller's stored phoneNumberId, fall back to passed param
+    const sellerPhoneNumberId = order.seller.phoneNumberId ?? phoneNumberId;
 
     // Check if order has expired (3 minutes since creation)
     const elapsed = Date.now() - order.createdAt.getTime();
@@ -439,6 +578,7 @@ export class WhatsAppService {
       await this.sendText(
         order.customer.phoneNumber,
         '⏰ Aapki shopping process ki samay seema samapt ho chuki hai.\nKripya nayi shopping list bhejkar nayi process shuru karein.',
+        sellerPhoneNumberId,
       );
       return;
     }
@@ -449,6 +589,7 @@ export class WhatsAppService {
     const buyerMsg = this.sendText(
       order.customer.phoneNumber,
       `✅ Order confirmed! Your order has been sent to the shop.\n\nWe'll notify you once packing begins.`,
+      sellerPhoneNumberId,
     );
 
     const sellerMsg = this.sendText(
@@ -456,6 +597,7 @@ export class WhatsAppService {
       `🛒 New Order from ${order.customer.name ?? order.customer.phoneNumber}!\n\n` +
         `Items: ${order.items?.length ?? 0}\n` +
         `Order #${order.id.slice(-6).toUpperCase()}`,
+      sellerPhoneNumberId,
     );
 
     await Promise.all([buyerMsg, sellerMsg]);
@@ -463,19 +605,19 @@ export class WhatsAppService {
     // Start packing and send packing slip
     await this.ordersService.transitionStatus(orderId, 'PACKING');
     const packingSlip = buildPackingSlip(orderId, order.items ?? []);
-    await this.sendInteractive(order.seller.phoneNumber, packingSlip);
+    await this.sendInteractive(order.seller.phoneNumber, packingSlip, sellerPhoneNumberId);
   }
 
-  private async promptPackItem(sellerPhone: string, itemId: string) {
+  private async promptPackItem(sellerPhone: string, itemId: string, phoneNumberId?: string) {
     const item = await this.prisma.orderItem.findUnique({ where: { id: itemId } });
     if (!item) return;
     const prompt = buildPackItemPrompt(item);
-    await this.sendInteractive(sellerPhone, prompt);
+    await this.sendInteractive(sellerPhone, prompt, phoneNumberId);
   }
 
-  private async markItemFound(sellerPhone: string, itemId: string) {
+  private async markItemFound(sellerPhone: string, itemId: string, phoneNumberId?: string) {
     await this.ordersService.updateItemStatus(itemId, 'FOUND');
-    await this.sendText(sellerPhone, '✅ Marked as found!');
+    await this.sendText(sellerPhone, '✅ Marked as found!', phoneNumberId);
 
     // Resend updated packing slip
     const item = await this.prisma.orderItem.findUnique({
@@ -484,22 +626,23 @@ export class WhatsAppService {
     });
     if (item) {
       const packingSlip = buildPackingSlip(item.orderId, item.order.items ?? []);
-      await this.sendInteractive(sellerPhone, packingSlip);
+      await this.sendInteractive(sellerPhone, packingSlip, phoneNumberId);
     }
   }
 
-  private async markItemNotFound(sellerPhone: string, itemId: string) {
+  private async markItemNotFound(sellerPhone: string, itemId: string, phoneNumberId?: string) {
     await this.ordersService.updateItemStatus(itemId, 'NOT_FOUND');
     await this.sendText(
       sellerPhone,
       'Please reply with the suggested replacement:\nName, Price\n\nExample: "Aashirvaad Atta, 65"',
+      phoneNumberId,
     );
     this.pendingActions.set(sellerPhone, { action: 'replacement', itemId });
   }
 
   // ── Replacement flow ──────────────────────────────────────────────
 
-  async handleSellerReplacement(sellerPhone: string, itemId: string, text: string) {
+  async handleSellerReplacement(sellerPhone: string, itemId: string, text: string, phoneNumberId?: string) {
     // Parse "Name, Price" from text
     const parts = text.split(',').map((p) => p.trim());
     const replacementName = parts[0] ?? 'Replacement Item';
@@ -525,12 +668,12 @@ export class WhatsAppService {
       replacementName,
       replacementPrice,
     );
-    await this.sendInteractive(item.order.customer.phoneNumber, replacementMsg);
+    await this.sendInteractive(item.order.customer.phoneNumber, replacementMsg, phoneNumberId);
 
-    await this.sendText(sellerPhone, `Replacement suggested and sent to customer for approval.`);
+    await this.sendText(sellerPhone, `Replacement suggested and sent to customer for approval.`, phoneNumberId);
   }
 
-  private async acceptReplacement(buyerPhone: string, itemId: string) {
+  private async acceptReplacement(buyerPhone: string, itemId: string, phoneNumberId?: string) {
     const item = await this.prisma.orderItem.findUnique({
       where: { id: itemId },
       include: { order: true },
@@ -543,7 +686,7 @@ export class WhatsAppService {
       item.replacementPrice ?? item.estimatedPrice ?? 0,
     );
 
-    await this.sendText(buyerPhone, '✅ Replacement accepted!');
+    await this.sendText(buyerPhone, '✅ Replacement accepted!', phoneNumberId);
 
     // Resume packing for seller
     await this.ordersService.transitionStatus(item.orderId, 'PACKING');
@@ -553,13 +696,14 @@ export class WhatsAppService {
     });
 
     if (seller) {
-      await this.sendText(seller.seller.phoneNumber, `Customer accepted replacement for "${item.name}".`);
+      const sellerPnId = seller.seller.phoneNumberId ?? phoneNumberId;
+      await this.sendText(seller.seller.phoneNumber, `Customer accepted replacement for "${item.name}".`, sellerPnId);
       const packingSlip = buildPackingSlip(item.orderId, seller.items ?? []);
-      await this.sendInteractive(seller.seller.phoneNumber, packingSlip);
+      await this.sendInteractive(seller.seller.phoneNumber, packingSlip, sellerPnId);
     }
   }
 
-  private async skipReplacement(buyerPhone: string, itemId: string) {
+  private async skipReplacement(buyerPhone: string, itemId: string, phoneNumberId?: string) {
     const item = await this.prisma.orderItem.findUnique({
       where: { id: itemId },
       include: { order: true },
@@ -567,7 +711,7 @@ export class WhatsAppService {
     if (!item) return;
 
     await this.ordersService.skipReplacement(itemId);
-    await this.sendText(buyerPhone, 'Item skipped — will be removed from your order.');
+    await this.sendText(buyerPhone, 'Item skipped — will be removed from your order.', phoneNumberId);
 
     // Resume packing for seller
     await this.ordersService.transitionStatus(item.orderId, 'PACKING');
@@ -577,42 +721,44 @@ export class WhatsAppService {
     });
 
     if (seller) {
-      await this.sendText(seller.seller.phoneNumber, `Customer skipped "${item.name}".`);
+      const sellerPnId = seller.seller.phoneNumberId ?? phoneNumberId;
+      await this.sendText(seller.seller.phoneNumber, `Customer skipped "${item.name}".`, sellerPnId);
       const packingSlip = buildPackingSlip(item.orderId, seller.items ?? []);
-      await this.sendInteractive(seller.seller.phoneNumber, packingSlip);
+      await this.sendInteractive(seller.seller.phoneNumber, packingSlip, sellerPnId);
     }
   }
 
   // ── Finalization ──────────────────────────────────────────────────
 
-  private async finalizeOrder(sellerPhone: string, orderId: string) {
+  private async finalizeOrder(sellerPhone: string, orderId: string, phoneNumberId?: string) {
     const finalized = await this.ordersService.finalizeTotal(orderId);
     const total = finalized.totalPrice ?? 0;
 
     await this.ordersService.transitionStatus(orderId, 'READY_FOR_PICKUP');
 
     const order = await this.ordersService.findById(orderId);
+    const sellerPnId = order.seller.phoneNumberId ?? phoneNumberId;
     const message = buildPickupReady(
       order.seller.storeName ?? order.seller.name ?? 'Your Shop',
       total,
       order.items ?? [],
     );
 
-    await this.sendText(order.customer.phoneNumber, message);
-    await this.sendText(sellerPhone, `Order finalized! Total: ₹${total}. Customer notified for pickup.`);
+    await this.sendText(order.customer.phoneNumber, message, sellerPnId);
+    await this.sendText(sellerPhone, `Order finalized! Total: ₹${total}. Customer notified for pickup.`, sellerPnId);
 
     await this.ordersService.transitionStatus(orderId, 'COMPLETED');
   }
 
   // ── WhatsApp Cloud API send methods ───────────────────────────────
 
-  async sendText(to: string, text: string): Promise<string | null> {
+  async sendText(to: string, text: string, phoneNumberId?: string): Promise<string | null> {
     try {
-      const phoneNumberId = this.configService.get<string>('whatsapp.phoneNumberId');
+      const resolvedPhoneNumberId = phoneNumberId || this.configService.get<string>('whatsapp.phoneNumberId');
       const accessToken = this.configService.get<string>('whatsapp.accessToken');
 
       const { data } = await axios.post(
-        `https://graph.facebook.com/v22.0/${phoneNumberId}/messages`,
+        `https://graph.facebook.com/v22.0/${resolvedPhoneNumberId}/messages`,
         {
           messaging_product: 'whatsapp',
           recipient_type: 'individual',
@@ -624,11 +770,11 @@ export class WhatsAppService {
       );
 
       const waMessageId = data.messages?.[0]?.id;
-      if (waMessageId && phoneNumberId) {
+      if (waMessageId && resolvedPhoneNumberId) {
         await this.prisma.message.create({
           data: {
             waMessageId,
-            from: phoneNumberId,
+            from: resolvedPhoneNumberId,
             to,
             direction: 'OUTBOUND',
             body: text,
@@ -644,13 +790,13 @@ export class WhatsAppService {
     }
   }
 
-  async sendInteractive(to: string, interactive: InteractiveMessage): Promise<string | null> {
+  async sendInteractive(to: string, interactive: InteractiveMessage, phoneNumberId?: string): Promise<string | null> {
     try {
-      const phoneNumberId = this.configService.get<string>('whatsapp.phoneNumberId');
+      const resolvedPhoneNumberId = phoneNumberId || this.configService.get<string>('whatsapp.phoneNumberId');
       const accessToken = this.configService.get<string>('whatsapp.accessToken');
 
       const { data } = await axios.post(
-        `https://graph.facebook.com/v22.0/${phoneNumberId}/messages`,
+        `https://graph.facebook.com/v22.0/${resolvedPhoneNumberId}/messages`,
         {
           messaging_product: 'whatsapp',
           recipient_type: 'individual',
@@ -662,11 +808,11 @@ export class WhatsAppService {
       );
 
       const waMessageId = data.messages?.[0]?.id;
-      if (waMessageId && phoneNumberId) {
+      if (waMessageId && resolvedPhoneNumberId) {
         await this.prisma.message.create({
           data: {
             waMessageId,
-            from: phoneNumberId,
+            from: resolvedPhoneNumberId,
             to,
             direction: 'OUTBOUND',
             body: JSON.stringify(interactive),
