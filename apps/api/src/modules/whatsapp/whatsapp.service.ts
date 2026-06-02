@@ -24,10 +24,9 @@ export class WhatsAppService {
   private readonly logger = new Logger(WhatsAppService.name);
   // V1 in-memory pending actions: phoneNumber → { action, itemId }
   private readonly pendingActions = new Map<string, { action: string; itemId: string }>();
-  // Triple-tap detector: itemId → { count, firstTap }
+  // Triple-tap: same item tapped 3 times within window → edit mode
   private readonly tapTracker = new Map<string, { count: number; firstTap: number }>();
-  private readonly TRIPLE_TAP_WINDOW_MS = 5000; // 5 seconds
-  private readonly TRIPLE_TAP_COUNT = 3;
+  private readonly TRIPLE_TAP_WINDOW = 20_000; // 20 seconds
 
   constructor(
     private readonly configService: ConfigService,
@@ -665,6 +664,14 @@ export class WhatsAppService {
         return;
       }
 
+      // edititem_<itemId> — Seller tapped ✏️ Edit, show inline editor
+      if (replyId.startsWith('edititem_')) {
+        const itemId = replyId.replace('edititem_', '');
+        const item = await this.prisma.orderItem.findUnique({ where: { id: itemId } });
+        if (item) await this.showInlineEditor(from, item, phoneNumberId);
+        return;
+      }
+
       // pack_<itemId> — Seller wants to pack this item
       if (replyId.startsWith('pack_')) {
         const itemId = replyId.replace('pack_', '');
@@ -751,29 +758,25 @@ export class WhatsAppService {
     const item = await this.prisma.orderItem.findUnique({ where: { id: itemId } });
     if (!item) return;
 
-    // Triple-tap detection for inline editing
+    // Triple-tap detection — 3 taps on same item within 20s → edit mode
     const now = Date.now();
     const tracked = this.tapTracker.get(itemId);
-
-    if (tracked && (now - tracked.firstTap) < this.TRIPLE_TAP_WINDOW_MS) {
+    if (tracked && (now - tracked.firstTap) < this.TRIPLE_TAP_WINDOW) {
       tracked.count++;
-      if (tracked.count >= this.TRIPLE_TAP_COUNT) {
-        // Show inline price and rename editor
+      if (tracked.count >= 3) {
         this.tapTracker.delete(itemId);
         await this.showInlineEditor(sellerPhone, item, phoneNumberId);
         return;
       }
     } else {
-      // First tap — start tracking
       this.tapTracker.set(itemId, { count: 1, firstTap: now });
     }
 
-    // Normal behavior: show Found / Not Found
     const prompt = buildPackItemPrompt(item);
     await this.sendInteractive(sellerPhone, prompt, phoneNumberId);
   }
 
-  // ── Inline editor (triple-tap) ─────────────────────────────────────
+  // ── Inline editor (via Edit button) ───────────────────────────────
 
   private async showInlineEditor(
     sellerPhone: string,
