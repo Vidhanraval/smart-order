@@ -24,6 +24,8 @@ export class WhatsAppService {
   private readonly logger = new Logger(WhatsAppService.name);
   // V1 in-memory pending actions: phoneNumber → { action, itemId }
   private readonly pendingActions = new Map<string, { action: string; itemId: string }>();
+  // Multi-tap tracker: itemId → taps within window
+  private readonly tapCount = new Map<string, { count: number; since: number }>();
 
   constructor(
     private readonly configService: ConfigService,
@@ -754,6 +756,29 @@ export class WhatsAppService {
   private async promptPackItem(sellerPhone: string, itemId: string, phoneNumberId?: string) {
     const item = await this.prisma.orderItem.findUnique({ where: { id: itemId } });
     if (!item) return;
+
+    // Multi-tap detection: 2 taps → quick hint, 3+ taps → editor
+    const now = Date.now();
+    const t = this.tapCount.get(itemId);
+    if (t && (now - t.since) < 15_000) {
+      t.count++;
+      t.since = now;
+      if (t.count === 2) {
+        // Double tap: brief hint, don't show prompt yet
+        await this.sendText(sellerPhone, `👆 *${item.name}*\nOne more tap → edit price/name`, phoneNumberId);
+        return;
+      }
+      if (t.count >= 3) {
+        // Triple tap: show editor!
+        this.tapCount.delete(itemId);
+        await this.showInlineEditor(sellerPhone, item, phoneNumberId);
+        return;
+      }
+    } else {
+      this.tapCount.set(itemId, { count: 1, since: now });
+    }
+
+    // First tap: show normal prompt
     const prompt = buildPackItemPrompt(item);
     await this.sendInteractive(sellerPhone, prompt, phoneNumberId);
   }

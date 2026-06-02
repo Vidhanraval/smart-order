@@ -220,10 +220,6 @@ export function buildPackItemPrompt(item: OrderItem): WhatsAppInteractiveButtons
           type: 'reply',
           reply: { id: `notfound_${item.id}`, title: '❌ Not Found' },
         },
-        {
-          type: 'reply',
-          reply: { id: `edititem_${item.id}`, title: '✏️ Edit' },
-        },
       ],
     },
   };
