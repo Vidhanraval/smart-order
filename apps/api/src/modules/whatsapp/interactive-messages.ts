@@ -140,63 +140,57 @@ export function buildReplacementReview(
   };
 }
 
-// ── Packing slip (seller view) ──────────────────────────────────────
+// ── Packing slip — direct actions, no sub-menus ────────────────────
 
 export function buildPackingSlip(orderId: string, items: OrderItem[]): WhatsAppInteractiveList {
   const pendingItems = items.filter(
     (i) => i.status === 'PENDING' || i.status === 'REPLACEMENT_ACCEPTED',
   );
-
   const foundItems = items.filter((i) => i.status === 'FOUND');
   const notFoundItems = items.filter(
     (i) => i.status === 'NOT_FOUND' || i.status === 'REPLACEMENT_SUGGESTED',
   );
 
   let statusText = '';
-  if (foundItems.length > 0) {
-    statusText += `✅ Found (${foundItems.length}): ${foundItems.map((i) => i.name).join(', ')}\n`;
-  }
+  if (foundItems.length > 0) statusText += `✅ Found: ${foundItems.map((i) => i.name).join(', ')}\n`;
   if (notFoundItems.length > 0) {
     statusText += `❌ Missing:\n`;
     for (const i of notFoundItems) {
       statusText += `   ${i.name}`;
-      if (i.replacementName) {
-        statusText += ` → ${i.replacementName} @ ₹${i.replacementPrice ?? '?'}`;
-      }
+      if (i.replacementName) statusText += ` → ${i.replacementName} @ ₹${i.replacementPrice ?? '?'}`;
       statusText += '\n';
     }
   }
-  if (pendingItems.length > 0) {
-    statusText += `\n📋 Full order:\n${formatItemsList(items, true)}\n`;
+  if (pendingItems.length > 0) statusText += `\n📋 Full order:\n${formatItemsList(items, true)}\n`;
+
+  // Direct actions — one tap = done, no sub-menu
+  const rows: Array<{ id: string; title: string; description?: string }> = [];
+  for (const item of pendingItems) {
+    const price = item.estimatedPrice != null ? `₹${item.estimatedPrice}` : '?';
+    rows.push({
+      id: `found_${item.id}`,
+      title: `✅ ${item.name}`,
+      description: `${item.quantity} ${item.unit} @ ${price}`,
+    });
+    rows.push({
+      id: `notfound_${item.id}`,
+      title: `❌ ${item.name}`,
+      description: `Not available — suggest replacement`,
+    });
   }
-
-  const rows = pendingItems.map((item) => ({
-    id: `pack_${item.id}`,
-    title: item.name,
-    description: `${item.quantity} ${item.unit} — ₹${item.estimatedPrice ?? '?'}`,
-  }));
-
   rows.push({
     id: `finalize_${orderId}`,
     title: '📦 Finish Packing',
-    description: 'All items packed — notify buyer',
+    description: 'All done — notify buyer',
   });
 
   return {
     type: 'list',
-    header: { type: 'text', text: 'Packing Slip' },
-    body: {
-      text: statusText || 'No items to pack',
-    },
-    footer: { text: 'Tap an item to mark it' },
+    header: { type: 'text', text: '🛒 Packing Slip' },
+    body: { text: statusText || `${pendingItems.length} items pending` },
     action: {
       button: 'Pack Items',
-      sections: [
-        {
-          title: 'Pending Items',
-          rows,
-        },
-      ],
+      sections: [{ title: 'Actions', rows }],
     },
   };
 }
