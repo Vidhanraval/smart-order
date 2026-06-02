@@ -24,9 +24,6 @@ export class WhatsAppService {
   private readonly logger = new Logger(WhatsAppService.name);
   // V1 in-memory pending actions: phoneNumber → { action, itemId }
   private readonly pendingActions = new Map<string, { action: string; itemId: string }>();
-  // Triple-tap: same item tapped 3 times within window → edit mode
-  private readonly tapTracker = new Map<string, { count: number; firstTap: number }>();
-  private readonly TRIPLE_TAP_WINDOW = 20_000; // 20 seconds
 
   constructor(
     private readonly configService: ConfigService,
@@ -757,29 +754,8 @@ export class WhatsAppService {
   private async promptPackItem(sellerPhone: string, itemId: string, phoneNumberId?: string) {
     const item = await this.prisma.orderItem.findUnique({ where: { id: itemId } });
     if (!item) return;
-
-    // Triple-tap detection — tap same item 3 times within 20s → editor
-    const now = Date.now();
-    const tracked = this.tapTracker.get(itemId);
-    if (tracked && (now - tracked.firstTap) < this.TRIPLE_TAP_WINDOW) {
-      tracked.count++;
-      if (tracked.count >= 3) {
-        this.tapTracker.delete(itemId);
-        await this.showInlineEditor(sellerPhone, item, phoneNumberId);
-        return;
-      }
-      // Hint: how many more taps needed
-      const remaining = 3 - tracked.count;
-      await this.sendText(sellerPhone, `👆 *${item.name}*\nTap ${remaining} more time${remaining > 1 ? 's' : ''} for edit options`, phoneNumberId);
-      return;
-    } else {
-      this.tapTracker.set(itemId, { count: 1, firstTap: now });
-    }
-
-    // First tap: show normal prompt + hint
     const prompt = buildPackItemPrompt(item);
     await this.sendInteractive(sellerPhone, prompt, phoneNumberId);
-    await this.sendText(sellerPhone, `💡 Tip: tap this item 2 more times for price/name edit`, phoneNumberId);
   }
 
   // ── Inline editor (via Edit button) ───────────────────────────────
