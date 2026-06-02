@@ -89,45 +89,74 @@
         </div>`;
     }
 
+    function sellerCard(s) {
+      return `
+        <div class="buyer-card">
+          <div class="buyer-header" style="background:#137333">
+            <div>
+              <div class="buyer-name">🏪 ${s.store_name || s.name || 'Unknown'}</div>
+              <div class="buyer-number">📱 ${s.phone_number}  |  👤 ${s.name || '—'}</div>
+            </div>
+            <div class="buyer-stats">
+              📋 ${s.total_orders} orders &nbsp;|&nbsp;
+              ✅ ${s.completed_orders} done &nbsp;|&nbsp;
+              💰 ₹${s.total_revenue} revenue
+            </div>
+          </div>
+        </div>`;
+    }
+
     async function load() {
       const container = document.getElementById('container');
       container.innerHTML = '<div id="loading">Loading...</div>';
       try {
-        const res = await fetch('/api/orders/summary');
-        const data = await res.json();
-        if (!data.length) {
-          container.innerHTML = '<div style="text-align:center;padding:60px;color:#999;background:white;border-radius:12px;">No orders yet</div>';
-          return;
+        const [orderRes, sellerRes] = await Promise.all([
+          fetch('/api/orders/summary'),
+          fetch('/api/sellers/summary')
+        ]);
+        const orders = await orderRes.json();
+        const sellers = await sellerRes.json();
+
+        let html = '';
+
+        // ── Sellers Section ────────────────────────
+        if (sellers.length) {
+          html += '<h2 style="margin-bottom:12px;color:#137333;">👥 Sellers</h2>';
+          html += sellers.map(s => sellerCard(s)).join('');
+          html += '<hr style="margin:24px 0;border:1px solid #ddd;">';
         }
 
-        // Group by buyer_number
-        const groups = {};
-        for (const row of data) {
-          const key = row.buyer_number;
-          if (!groups[key]) groups[key] = { name: row.buyer_name, number: row.buyer_number, orders: [] };
-          groups[key].orders.push(row);
+        // ── Buyers Section ────────────────────────
+        if (orders.length) {
+          html += '<h2 style="margin-bottom:12px;">👤 Buyers</h2>';
+          const groups = {};
+          for (const row of orders) {
+            const key = row.buyer_number;
+            if (!groups[key]) groups[key] = { name: row.buyer_name, number: row.buyer_number, orders: [] };
+            groups[key].orders.push(row);
+          }
+          html += Object.values(groups).map(g => {
+            const total = g.orders.reduce((s, o) => s + (o.order_total || 0), 0);
+            const completed = g.orders.filter(o => o.order_status === 'COMPLETED').length;
+            return `
+              <div class="buyer-card">
+                <div class="buyer-header">
+                  <div>
+                    <div class="buyer-name">👤 ${g.name || 'Unknown'}</div>
+                    <div class="buyer-number">📱 ${g.number}</div>
+                  </div>
+                  <div class="buyer-stats">
+                    📋 ${g.orders.length} orders &nbsp;|&nbsp;
+                    ✅ ${completed} done &nbsp;|&nbsp;
+                    💰 ₹${total} total
+                  </div>
+                </div>
+                ${buildTable(g.orders)}
+              </div>`;
+          }).join('');
         }
 
-        // Build cards per buyer
-        container.innerHTML = Object.values(groups).map(g => {
-          const total = g.orders.reduce((s, o) => s + (o.order_total || 0), 0);
-          const completed = g.orders.filter(o => o.order_status === 'COMPLETED').length;
-          return `
-            <div class="buyer-card">
-              <div class="buyer-header">
-                <div>
-                  <div class="buyer-name">👤 ${g.name || 'Unknown'}</div>
-                  <div class="buyer-number">📱 ${g.number}</div>
-                </div>
-                <div class="buyer-stats">
-                  📋 ${g.orders.length} orders &nbsp;|&nbsp;
-                  ✅ ${completed} done &nbsp;|&nbsp;
-                  💰 ₹${total} total
-                </div>
-              </div>
-              ${buildTable(g.orders)}
-            </div>`;
-        }).join('');
+        container.innerHTML = html || '<div style="text-align:center;padding:60px;color:#999;background:white;border-radius:12px;">No data yet</div>';
       } catch(e) {
         container.innerHTML = '<div style="text-align:center;padding:40px;color:red;">Error loading data</div>';
         console.error(e);

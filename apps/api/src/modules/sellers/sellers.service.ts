@@ -72,4 +72,36 @@ export class SellersService {
   async findAll() {
     return this.prisma.seller.findMany({ include: { orders: true } });
   }
+
+  async getSummary() {
+    const rows = await this.prisma.$queryRawUnsafe<
+      Array<{
+        phone_number: string;
+        name: string | null;
+        store_name: string | null;
+        total_orders: number;
+        completed_orders: number;
+        total_revenue: number;
+        last_order_date: Date | null;
+      }>
+    >(`
+      SELECT
+        s."phoneNumber" AS phone_number,
+        s.name,
+        s."storeName" AS store_name,
+        COUNT(o.id)::int AS total_orders,
+        COUNT(o.id) FILTER (WHERE o.status = 'COMPLETED')::int AS completed_orders,
+        COALESCE(SUM(o."totalPrice") FILTER (WHERE o."totalPrice" IS NOT NULL), 0)::float AS total_revenue,
+        MAX(o."createdAt") AS last_order_date
+      FROM "Seller" s
+      LEFT JOIN "Order" o ON o."sellerId" = s.id
+      GROUP BY s.id, s."phoneNumber", s.name, s."storeName"
+      ORDER BY total_orders DESC
+    `);
+
+    return rows.map((r) => ({
+      ...r,
+      total_revenue: Number(r.total_revenue),
+    }));
+  }
 }
