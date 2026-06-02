@@ -554,7 +554,7 @@ export class WhatsAppService {
     if (!parsed.items || parsed.items.length === 0) {
       await this.sendText(
         from,
-        '❓ Could not understand your order.\n\nPlease send your shopping list like:\n"1 kg atta, 2 pcs soap, 1 kg rice"',
+        'Please send your shopping list like:\n"1 kg atta, 2 pcs soap, 1 kg rice"',
         phoneNumberId,
       );
       return;
