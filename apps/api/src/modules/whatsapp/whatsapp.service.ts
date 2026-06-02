@@ -225,6 +225,40 @@ export class WhatsAppService {
       return true;
     }
 
+    if (pending.action === 'seller_edit') {
+      // Seller edit: "Name, Price"
+      const parts = text.split(',').map((p) => p.trim());
+      const name = parts[0];
+      const price = parseFloat(parts[1] ?? '0') || 0;
+
+      if (!name) {
+        await this.sendText(from, '⚠️ Please reply with: Name, Price\n\nExample: "Aashirvaad Atta, 65"', phoneNumberId);
+        // Re-set pending so seller can try again
+        this.pendingActions.set(from, { action: 'seller_edit', itemId: pending.itemId });
+        return true;
+      }
+
+      await this.prisma.orderItem.update({
+        where: { id: pending.itemId },
+        data: { name, estimatedPrice: price },
+      });
+
+      const item = await this.prisma.orderItem.findUnique({
+        where: { id: pending.itemId },
+        include: { order: { include: { items: true } } },
+      });
+
+      await this.sendText(from, `✅ Item updated: ${name} @ ₹${price}`, phoneNumberId);
+
+      // Resend updated packing slip
+      if (item) {
+        const packingSlip = buildPackingSlip(item.orderId, item.order.items ?? []);
+        await this.sendInteractive(from, packingSlip, phoneNumberId);
+      }
+
+      return true;
+    }
+
     return false;
   }
 
@@ -240,6 +274,24 @@ export class WhatsAppService {
 
     const parsed = await this.aiService.parseText(text);
     await this.createOrderAndSendReview(from, parsed, text, senderName, sellerPhone, phoneNumberId);
+  }
+
+  // ── Seller edit item ─────────────────────────────────────────────
+
+  private async promptSellerEditItem(sellerPhone: string, itemId: string, phoneNumberId?: string) {
+    const item = await this.prisma.orderItem.findUnique({ where: { id: itemId } });
+    if (!item) {
+      await this.sendText(sellerPhone, '⚠️ Item not found.', phoneNumberId);
+      return;
+    }
+
+    await this.sendText(
+      sellerPhone,
+      `✏️ Editing: *${item.name}*\nCurrent: ${item.quantity} ${item.unit} — ₹${item.estimatedPrice ?? '?'}\n\nReply with:\nName, Price\n\nExample: "Aashirvaad Atta, 65"`,
+      phoneNumberId,
+    );
+
+    this.pendingActions.set(sellerPhone, { action: 'seller_edit', itemId });
   }
 
   // ── Greeting detection ──────────────────────────────────────────
@@ -523,6 +575,13 @@ export class WhatsAppService {
       if (replyId.startsWith('skip_')) {
         const itemId = replyId.replace('skip_', '');
         await this.skipReplacement(from, itemId, phoneNumberId);
+        return;
+      }
+
+      // editseller_<itemId> — Seller wants to edit item name/price
+      if (replyId.startsWith('editseller_')) {
+        const itemId = replyId.replace('editseller_', '');
+        await this.promptSellerEditItem(from, itemId, phoneNumberId);
         return;
       }
 
