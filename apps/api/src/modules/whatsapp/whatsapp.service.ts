@@ -550,6 +550,16 @@ export class WhatsAppService {
     sellerPhone?: string,
     phoneNumberId?: string,
   ) {
+    // If AI couldn't parse any items, ask user to try again
+    if (!parsed.items || parsed.items.length === 0) {
+      await this.sendText(
+        from,
+        '❓ Could not understand your order.\n\nPlease send your shopping list like:\n"1 kg atta, 2 pcs soap, 1 kg rice"\n\nOr type "hi" for help.',
+        phoneNumberId,
+      );
+      return;
+    }
+
     const resolvedSellerPhone = sellerPhone || (this.configService.get<string>('seller.phoneNumber') ?? '');
     const resolvedPhoneNumberId = phoneNumberId || (this.configService.get<string>('whatsapp.phoneNumberId') ?? '');
 

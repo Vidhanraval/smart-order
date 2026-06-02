@@ -161,8 +161,8 @@ export class AiService {
       };
     }
 
-    // Just item name, assume qty 1
-    if (lower.length > 2) {
+    // Just item name, assume qty 1 — but don't treat pure numbers as items
+    if (lower.length > 2 && !/^\d+\.?\d*$/.test(lower)) {
       const matched = this.matchItem(lower, 'pcs');
       return {
         item: { name: matched.name, quantity: 1, unit: matched.unit, estimatedPrice: matched.price },
