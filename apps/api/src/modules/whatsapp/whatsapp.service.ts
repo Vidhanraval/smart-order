@@ -24,6 +24,10 @@ export class WhatsAppService {
   private readonly logger = new Logger(WhatsAppService.name);
   // V1 in-memory pending actions: phoneNumber → { action, itemId }
   private readonly pendingActions = new Map<string, { action: string; itemId: string }>();
+  // Triple-tap detector: itemId → { count, firstTap }
+  private readonly tapTracker = new Map<string, { count: number; firstTap: number }>();
+  private readonly TRIPLE_TAP_WINDOW_MS = 5000; // 5 seconds
+  private readonly TRIPLE_TAP_COUNT = 3;
 
   constructor(
     private readonly configService: ConfigService,
@@ -746,8 +750,64 @@ export class WhatsAppService {
   private async promptPackItem(sellerPhone: string, itemId: string, phoneNumberId?: string) {
     const item = await this.prisma.orderItem.findUnique({ where: { id: itemId } });
     if (!item) return;
+
+    // Triple-tap detection for inline editing
+    const now = Date.now();
+    const tracked = this.tapTracker.get(itemId);
+
+    if (tracked && (now - tracked.firstTap) < this.TRIPLE_TAP_WINDOW_MS) {
+      tracked.count++;
+      if (tracked.count >= this.TRIPLE_TAP_COUNT) {
+        // Show inline price and rename editor
+        this.tapTracker.delete(itemId);
+        await this.showInlineEditor(sellerPhone, item, phoneNumberId);
+        return;
+      }
+    } else {
+      // First tap — start tracking
+      this.tapTracker.set(itemId, { count: 1, firstTap: now });
+    }
+
+    // Normal behavior: show Found / Not Found
     const prompt = buildPackItemPrompt(item);
     await this.sendInteractive(sellerPhone, prompt, phoneNumberId);
+  }
+
+  // ── Inline editor (triple-tap) ─────────────────────────────────────
+
+  private async showInlineEditor(
+    sellerPhone: string,
+    item: { id: string; name: string; estimatedPrice: number | null },
+    phoneNumberId?: string,
+  ) {
+    const price = item.estimatedPrice ?? 50;
+    const prices = [price, price + 10, price + 20, price - 10, price + 50].filter((p) => p > 0);
+
+    await this.sendInteractive(
+      sellerPhone,
+      {
+        type: 'list',
+        header: { type: 'text', text: `✏️ ${item.name}` },
+        body: { text: `Edit price or rename` },
+        action: {
+          button: 'Edit',
+          sections: [
+            {
+              title: '💰 Quick Price',
+              rows: prices.map((p) => ({
+                id: `price_${item.id}_${p}`,
+                title: p === price ? `₹${p} ✓` : `₹${p}`,
+              })),
+            },
+            {
+              title: '✏️ Rename',
+              rows: [{ id: `rename_${item.id}`, title: '✏️ Rename Item' }],
+            },
+          ],
+        },
+      },
+      phoneNumberId,
+    );
   }
 
   private async markItemFound(sellerPhone: string, itemId: string, phoneNumberId?: string) {
