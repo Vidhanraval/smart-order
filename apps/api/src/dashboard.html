@@ -9,85 +9,128 @@
     body { font-family: system-ui, sans-serif; background: #f5f5f5; padding: 20px; }
     h1 { color: #1a73e8; margin-bottom: 5px; }
     .subtitle { color: #666; margin-bottom: 20px; }
-    .table-wrap { overflow-x: auto; background: white; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
+    .refresh { background: #1a73e8; color: white; border: none; padding: 8px 20px; border-radius: 8px; cursor: pointer; margin-bottom: 20px; font-size: 14px; }
+    .refresh:hover { background: #1557b0; }
+
+    .buyer-card {
+      background: white; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+      margin-bottom: 24px; overflow: hidden;
+    }
+    .buyer-header {
+      background: #1a73e8; color: white; padding: 12px 16px;
+      display: flex; justify-content: space-between; align-items: center;
+    }
+    .buyer-name { font-size: 16px; font-weight: 700; }
+    .buyer-number { font-size: 13px; opacity: 0.9; }
+    .buyer-stats { font-size: 13px; opacity: 0.85; }
+
+    .table-wrap { overflow-x: auto; }
     table { width: 100%; border-collapse: collapse; font-size: 13px; }
-    th { background: #1a73e8; color: white; padding: 10px 8px; text-align: left; font-weight: 600; white-space: nowrap; position: sticky; top: 0; z-index: 1; }
+    th { background: #f1f3f4; color: #333; padding: 8px; text-align: left; font-weight: 600; white-space: nowrap; border-bottom: 2px solid #ddd; }
     td { padding: 8px; border-bottom: 1px solid #eee; vertical-align: top; }
     tr:hover { background: #f8f9ff; }
+
     .badge { display: inline-block; padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: 600; }
-    .badge-completed { background: #e6f4ea; color: #137333; }
-    .badge-packing { background: #e8f0fe; color: #1967d2; }
-    .badge-submitted { background: #fef7e0; color: #b06000; }
+    .badge-COMPLETED { background: #e6f4ea; color: #137333; }
+    .badge-PACKING { background: #e8f0fe; color: #1967d2; }
+    .badge-SUBMITTED { background: #fef7e0; color: #b06000; }
+    .badge-READY_FOR_PICKUP { background: #e6f4ea; color: #137333; }
+    .badge-PARSING, .badge-REVIEWING { background: #fce8e6; color: #c5221f; }
+
     .price { font-weight: 600; color: #137333; }
     .empty { color: #999; font-style: italic; }
-    .refresh { background: #1a73e8; color: white; border: none; padding: 8px 20px; border-radius: 8px; cursor: pointer; margin-bottom: 15px; font-size: 14px; }
-    .refresh:hover { background: #1557b0; }
+    .total-row { background: #f8f9fa; font-weight: 700; }
+    #loading { text-align: center; padding: 40px; color: #666; }
   </style>
 </head>
 <body>
   <h1>🛒 SmartOrder Dashboard</h1>
-  <p class="subtitle">All orders — Buyer, Seller, Items, Messages in one table</p>
+  <p class="subtitle">Buyer-wise orders — ek buyer, ek table</p>
   <button class="refresh" onclick="load()">🔄 Refresh</button>
-  <div class="table-wrap">
-    <table>
-      <thead>
-        <tr>
-          <th>Date</th>
-          <th>Status</th>
-          <th>Buyer Name</th>
-          <th>Buyer #</th>
-          <th>Seller Name</th>
-          <th>Seller #</th>
-          <th>Store</th>
-          <th>Items</th>
-          <th>Total</th>
-          <th>Last Message</th>
-          <th>Msgs</th>
-        </tr>
-      </thead>
-      <tbody id="tbody"></tbody>
-    </table>
-  </div>
-  <script>
-    const STATUS_COLORS = {
-      COMPLETED: 'badge-completed',
-      PACKING: 'badge-packing',
-      SUBMITTED: 'badge-submitted',
-      READY_FOR_PICKUP: 'badge-completed',
-    };
+  <div id="container"></div>
 
+  <script>
     function badge(status) {
-      const cls = STATUS_COLORS[status] || 'badge-packing';
+      const cls = `badge-${status}`;
       return `<span class="badge ${cls}">${status.replace(/_/g, ' ')}</span>`;
     }
 
+    function buildTable(orders) {
+      return `
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Date</th>
+                <th>Status</th>
+                <th>Seller</th>
+                <th>Store</th>
+                <th>Items</th>
+                <th>Total</th>
+                <th>Last Message</th>
+                <th>Msgs</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${orders.map(r => `
+                <tr>
+                  <td>${new Date(r.order_date).toLocaleString('en-IN', {day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'})}</td>
+                  <td>${badge(r.order_status)}</td>
+                  <td>${r.seller_name || '<span class="empty">—</span>'}<br><small style="color:#888">${r.seller_number}</small></td>
+                  <td>${r.store_name || '<span class="empty">—</span>'}</td>
+                  <td style="max-width:300px">${r.items || '<span class="empty">no items</span>'}</td>
+                  <td>${r.order_total ? '<span class="price">₹'+r.order_total+'</span>' : '<span class="empty">—</span>'}</td>
+                  <td style="max-width:180px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${r.last_message || '<span class="empty">—</span>'}</td>
+                  <td style="text-align:center">${r.message_count}</td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+        </div>`;
+    }
+
     async function load() {
-      const tbody = document.getElementById('tbody');
-      tbody.innerHTML = '<tr><td colspan="11">Loading...</td></tr>';
+      const container = document.getElementById('container');
+      container.innerHTML = '<div id="loading">Loading...</div>';
       try {
         const res = await fetch('/api/orders/summary');
         const data = await res.json();
         if (!data.length) {
-          tbody.innerHTML = '<tr><td colspan="11" style="text-align:center;padding:40px;">No orders yet</td></tr>';
+          container.innerHTML = '<div style="text-align:center;padding:60px;color:#999;background:white;border-radius:12px;">No orders yet</div>';
           return;
         }
-        tbody.innerHTML = data.map(r => `
-          <tr>
-            <td>${new Date(r.order_date).toLocaleString('en-IN', {day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'})}</td>
-            <td>${badge(r.order_status)}</td>
-            <td>${r.buyer_name || '<span class="empty">—</span>'}</td>
-            <td>${r.buyer_number}</td>
-            <td>${r.seller_name || '<span class="empty">—</span>'}</td>
-            <td>${r.seller_number}</td>
-            <td>${r.store_name || '<span class="empty">—</span>'}</td>
-            <td>${r.items || '<span class="empty">no items</span>'}</td>
-            <td>${r.order_total ? '<span class="price">₹'+r.order_total+'</span>' : '<span class="empty">—</span>'}</td>
-            <td style="max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${r.last_message || '<span class="empty">—</span>'}</td>
-            <td>${r.message_count}</td>
-          </tr>
-        `).join('');
+
+        // Group by buyer_number
+        const groups = {};
+        for (const row of data) {
+          const key = row.buyer_number;
+          if (!groups[key]) groups[key] = { name: row.buyer_name, number: row.buyer_number, orders: [] };
+          groups[key].orders.push(row);
+        }
+
+        // Build cards per buyer
+        container.innerHTML = Object.values(groups).map(g => {
+          const total = g.orders.reduce((s, o) => s + (o.order_total || 0), 0);
+          const completed = g.orders.filter(o => o.order_status === 'COMPLETED').length;
+          return `
+            <div class="buyer-card">
+              <div class="buyer-header">
+                <div>
+                  <div class="buyer-name">👤 ${g.name || 'Unknown'}</div>
+                  <div class="buyer-number">📱 ${g.number}</div>
+                </div>
+                <div class="buyer-stats">
+                  📋 ${g.orders.length} orders &nbsp;|&nbsp;
+                  ✅ ${completed} done &nbsp;|&nbsp;
+                  💰 ₹${total} total
+                </div>
+              </div>
+              ${buildTable(g.orders)}
+            </div>`;
+        }).join('');
       } catch(e) {
-        tbody.innerHTML = '<tr><td colspan="11" style="color:red">Error loading data</td></tr>';
+        container.innerHTML = '<div style="text-align:center;padding:40px;color:red;">Error loading data</div>';
+        console.error(e);
       }
     }
     load();
