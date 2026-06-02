@@ -140,7 +140,7 @@ export function buildReplacementReview(
   };
 }
 
-// ── Packing slip — direct actions, no sub-menus ────────────────────
+// ── Packing slip ───────────────────────────────────────────────────
 
 export function buildPackingSlip(orderId: string, items: OrderItem[]): WhatsAppInteractiveList {
   const pendingItems = items.filter(
@@ -163,21 +163,11 @@ export function buildPackingSlip(orderId: string, items: OrderItem[]): WhatsAppI
   }
   if (pendingItems.length > 0) statusText += `\n📋 Full order:\n${formatItemsList(items, true)}\n`;
 
-  // Direct actions — one tap = done, no sub-menu
-  const rows: Array<{ id: string; title: string; description?: string }> = [];
-  for (const item of pendingItems) {
-    const price = item.estimatedPrice != null ? `₹${item.estimatedPrice}` : '?';
-    rows.push({
-      id: `found_${item.id}`,
-      title: `✅ ${item.name}`,
-      description: `${item.quantity} ${item.unit} @ ${price}`,
-    });
-    rows.push({
-      id: `notfound_${item.id}`,
-      title: `❌ ${item.name}`,
-      description: `Not available — suggest replacement`,
-    });
-  }
+  const rows = pendingItems.map((item) => ({
+    id: `pack_${item.id}`,
+    title: item.name,
+    description: `${item.quantity} ${item.unit} — ₹${item.estimatedPrice ?? '?'}`,
+  }));
   rows.push({
     id: `finalize_${orderId}`,
     title: '📦 Finish Packing',
@@ -188,9 +178,10 @@ export function buildPackingSlip(orderId: string, items: OrderItem[]): WhatsAppI
     type: 'list',
     header: { type: 'text', text: '🛒 Packing Slip' },
     body: { text: statusText || `${pendingItems.length} items pending` },
+    footer: { text: 'Tap item for options' },
     action: {
       button: 'Pack Items',
-      sections: [{ title: 'Actions', rows }],
+      sections: [{ title: 'Items', rows }],
     },
   };
 }
@@ -202,18 +193,13 @@ export function buildPackItemPrompt(item: OrderItem): WhatsAppInteractiveButtons
     type: 'button',
     header: { type: 'text', text: item.name },
     body: {
-      text: `${item.quantity} ${item.unit} — ₹${item.estimatedPrice ?? '?'}\n\nIs this item available?`,
+      text: `${item.quantity} ${item.unit} — ₹${item.estimatedPrice ?? '?'}`,
     },
     action: {
       buttons: [
-        {
-          type: 'reply',
-          reply: { id: `found_${item.id}`, title: '✅ Found' },
-        },
-        {
-          type: 'reply',
-          reply: { id: `notfound_${item.id}`, title: '❌ Not Found' },
-        },
+        { type: 'reply', reply: { id: `found_${item.id}`, title: '✅ Found' } },
+        { type: 'reply', reply: { id: `notfound_${item.id}`, title: '❌ Not Found' } },
+        { type: 'reply', reply: { id: `edititem_${item.id}`, title: '✏️ Edit' } },
       ],
     },
   };
