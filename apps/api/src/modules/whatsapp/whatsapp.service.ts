@@ -80,14 +80,14 @@ export class WhatsAppService {
   ): Promise<void> {
     const from = message.from;
 
-    // Resolve seller: prefer metadata from webhook, fall back to config
-    const resolvedSellerPhone = sellerPhone || (this.configService.get<string>('seller.phoneNumber') ?? '');
+    // Resolve which platform number/ID to use for sending replies
+    // metadata.phone_number_id from webhook tells us which platform number the buyer messaged
     const resolvedPhoneNumberId = sellerPhoneNumberId || (this.configService.get<string>('whatsapp.phoneNumberId') ?? '');
 
-    // Auto-create / update seller in DB (upsert by phone, store phoneNumberId)
-    if (resolvedSellerPhone) {
-      await this.sellersService.upsert(resolvedSellerPhone, resolvedPhoneNumberId, 'Local Shop');
-    }
+    // Seller is resolved later — from store prefix or config fallback.
+    // metadata.display_phone_number is the PLATFORM number, not a seller, so we DON'T
+    // auto-create a seller from it.
+    const resolvedSellerPhone = (this.configService.get<string>('seller.phoneNumber') ?? '');
 
     // Route based on message type (DB operations are inside try-catch)
     try {
