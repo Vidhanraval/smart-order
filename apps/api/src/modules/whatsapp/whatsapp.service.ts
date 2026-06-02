@@ -758,7 +758,7 @@ export class WhatsAppService {
     const item = await this.prisma.orderItem.findUnique({ where: { id: itemId } });
     if (!item) return;
 
-    // Triple-tap detection — 3 taps on same item within 20s → edit mode
+    // Triple-tap detection — tap same item 3 times within 20s → editor
     const now = Date.now();
     const tracked = this.tapTracker.get(itemId);
     if (tracked && (now - tracked.firstTap) < this.TRIPLE_TAP_WINDOW) {
@@ -768,12 +768,18 @@ export class WhatsAppService {
         await this.showInlineEditor(sellerPhone, item, phoneNumberId);
         return;
       }
+      // Hint: how many more taps needed
+      const remaining = 3 - tracked.count;
+      await this.sendText(sellerPhone, `👆 *${item.name}*\nTap ${remaining} more time${remaining > 1 ? 's' : ''} for edit options`, phoneNumberId);
+      return;
     } else {
       this.tapTracker.set(itemId, { count: 1, firstTap: now });
     }
 
+    // First tap: show normal prompt + hint
     const prompt = buildPackItemPrompt(item);
     await this.sendInteractive(sellerPhone, prompt, phoneNumberId);
+    await this.sendText(sellerPhone, `💡 Tip: tap this item 2 more times for price/name edit`, phoneNumberId);
   }
 
   // ── Inline editor (via Edit button) ───────────────────────────────
