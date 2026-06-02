@@ -225,6 +225,33 @@ export class WhatsAppService {
       return true;
     }
 
+    if (pending.action === 'seller_rename') {
+      const name = text.trim();
+      if (!name) {
+        await this.sendText(from, '⚠️ Please reply with the new name.', phoneNumberId);
+        this.pendingActions.set(from, { action: 'seller_rename', itemId: pending.itemId });
+        return true;
+      }
+
+      await this.prisma.orderItem.update({
+        where: { id: pending.itemId },
+        data: { name },
+      });
+
+      const item = await this.prisma.orderItem.findUnique({
+        where: { id: pending.itemId },
+        include: { order: { include: { items: true } } },
+      });
+
+      await this.sendText(from, `✅ Renamed to: ${name}`, phoneNumberId);
+
+      if (item) {
+        const packingSlip = buildPackingSlip(item.orderId, item.order.items ?? []);
+        await this.sendInteractive(from, packingSlip, phoneNumberId);
+      }
+      return true;
+    }
+
     if (pending.action === 'seller_edit') {
       // Seller edit: "Name, Price" or "Name - Price" or "Name 40"
       // Clean input: remove ₹, strip trailing chars
@@ -597,6 +624,21 @@ export class WhatsAppService {
       if (replyId.startsWith('skip_')) {
         const itemId = replyId.replace('skip_', '');
         await this.skipReplacement(from, itemId, phoneNumberId);
+        return;
+      }
+
+      // rename_<itemId> — Seller wants to rename the item
+      if (replyId.startsWith('rename_')) {
+        const itemId = replyId.replace('rename_', '');
+        const item = await this.prisma.orderItem.findUnique({ where: { id: itemId } });
+        if (item) {
+          await this.sendText(
+            from,
+            `✏️ Rename: *${item.name}*\n\nReply with the new name:`,
+            phoneNumberId,
+          );
+          this.pendingActions.set(from, { action: 'seller_rename', itemId });
+        }
         return;
       }
 

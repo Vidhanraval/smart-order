@@ -233,6 +233,12 @@ export function buildPackItemPrompt(item: OrderItem): WhatsAppInteractiveList {
             description: `Set price to ₹${p}`,
           })),
         },
+        {
+          title: '✏️ Rename',
+          rows: [
+            { id: `rename_${item.id}`, title: '✏️ Rename Item', description: 'Change item name' },
+          ],
+        },
       ],
     },
   };
