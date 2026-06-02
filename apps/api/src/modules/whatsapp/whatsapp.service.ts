@@ -322,44 +322,6 @@ export class WhatsAppService {
     await this.createOrderAndSendReview(from, parsed, text, senderName, sellerPhone, phoneNumberId);
   }
 
-  // ── Seller inline price editor ─────────────────────────────────────
-
-  private async showInlinePriceEditor(sellerPhone: string, itemId: string, phoneNumberId?: string) {
-    const item = await this.prisma.orderItem.findUnique({ where: { id: itemId } });
-    if (!item) return;
-
-    const prices = [10, 20, 30, 40, 50, 60, 70, 80, 100, 120, 150, 200, 250];
-
-    await this.sendInteractive(
-      sellerPhone,
-      {
-        type: 'list',
-        header: { type: 'text', text: `💰 ${item.name}` },
-        body: { text: `Current: ₹${item.estimatedPrice ?? '?'}\n\nPick new price or rename:` },
-        action: {
-          button: 'Options',
-          sections: [
-            {
-              title: 'Quick Prices',
-              rows: prices.map((p) => ({
-                id: `price_${itemId}_${p}`,
-                title: `₹${p}`,
-                description: p === (item.estimatedPrice ?? 0) ? '👈 current' : undefined,
-              })),
-            },
-            {
-              title: 'Edit',
-              rows: [
-                { id: `rename_${itemId}`, title: '✏️ Rename', description: 'Change item name' },
-              ],
-            },
-          ],
-        },
-      },
-      phoneNumberId,
-    );
-  }
-
   // ── Seller inline price change ────────────────────────────────────
 
   private async handleSellerPriceChange(sellerPhone: string, itemId: string, price: number, phoneNumberId?: string) {
@@ -665,14 +627,7 @@ export class WhatsAppService {
         return;
       }
 
-      // editprice_<itemId> — Seller tapped [💰 Price], show inline price picker
-      if (replyId.startsWith('editprice_')) {
-        const itemId = replyId.replace('editprice_', '');
-        await this.showInlinePriceEditor(from, itemId, phoneNumberId);
-        return;
-      }
-
-      // price_<itemId>_<amount> — Seller picked a specific price
+      // price_<itemId>_<amount> — Seller picked a price inline from packing slip
       if (replyId.startsWith('price_')) {
         const parts = replyId.split('_');
         const price = parseFloat(parts.pop()!);
