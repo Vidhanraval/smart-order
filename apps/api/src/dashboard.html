@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SmartOrder Dashboard</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: system-ui, sans-serif; background: #f5f5f5; padding: 20px; }
+    h1 { color: #1a73e8; margin-bottom: 5px; }
+    .subtitle { color: #666; margin-bottom: 20px; }
+    .table-wrap { overflow-x: auto; background: white; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    th { background: #1a73e8; color: white; padding: 10px 8px; text-align: left; font-weight: 600; white-space: nowrap; position: sticky; top: 0; z-index: 1; }
+    td { padding: 8px; border-bottom: 1px solid #eee; vertical-align: top; }
+    tr:hover { background: #f8f9ff; }
+    .badge { display: inline-block; padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: 600; }
+    .badge-completed { background: #e6f4ea; color: #137333; }
+    .badge-packing { background: #e8f0fe; color: #1967d2; }
+    .badge-submitted { background: #fef7e0; color: #b06000; }
+    .price { font-weight: 600; color: #137333; }
+    .empty { color: #999; font-style: italic; }
+    .refresh { background: #1a73e8; color: white; border: none; padding: 8px 20px; border-radius: 8px; cursor: pointer; margin-bottom: 15px; font-size: 14px; }
+    .refresh:hover { background: #1557b0; }
+  </style>
+</head>
+<body>
+  <h1>🛒 SmartOrder Dashboard</h1>
+  <p class="subtitle">All orders — Buyer, Seller, Items, Messages in one table</p>
+  <button class="refresh" onclick="load()">🔄 Refresh</button>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Date</th>
+          <th>Status</th>
+          <th>Buyer Name</th>
+          <th>Buyer #</th>
+          <th>Seller Name</th>
+          <th>Seller #</th>
+          <th>Store</th>
+          <th>Items</th>
+          <th>Total</th>
+          <th>Last Message</th>
+          <th>Msgs</th>
+        </tr>
+      </thead>
+      <tbody id="tbody"></tbody>
+    </table>
+  </div>
+  <script>
+    const STATUS_COLORS = {
+      COMPLETED: 'badge-completed',
+      PACKING: 'badge-packing',
+      SUBMITTED: 'badge-submitted',
+      READY_FOR_PICKUP: 'badge-completed',
+    };
+
+    function badge(status) {
+      const cls = STATUS_COLORS[status] || 'badge-packing';
+      return `<span class="badge ${cls}">${status.replace(/_/g, ' ')}</span>`;
+    }
+
+    async function load() {
+      const tbody = document.getElementById('tbody');
+      tbody.innerHTML = '<tr><td colspan="11">Loading...</td></tr>';
+      try {
+        const res = await fetch('/api/orders/summary');
+        const data = await res.json();
+        if (!data.length) {
+          tbody.innerHTML = '<tr><td colspan="11" style="text-align:center;padding:40px;">No orders yet</td></tr>';
+          return;
+        }
+        tbody.innerHTML = data.map(r => `
+          <tr>
+            <td>${new Date(r.order_date).toLocaleString('en-IN', {day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'})}</td>
+            <td>${badge(r.order_status)}</td>
+            <td>${r.buyer_name || '<span class="empty">—</span>'}</td>
+            <td>${r.buyer_number}</td>
+            <td>${r.seller_name || '<span class="empty">—</span>'}</td>
+            <td>${r.seller_number}</td>
+            <td>${r.store_name || '<span class="empty">—</span>'}</td>
+            <td>${r.items || '<span class="empty">no items</span>'}</td>
+            <td>${r.order_total ? '<span class="price">₹'+r.order_total+'</span>' : '<span class="empty">—</span>'}</td>
+            <td style="max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${r.last_message || '<span class="empty">—</span>'}</td>
+            <td>${r.message_count}</td>
+          </tr>
+        `).join('');
+      } catch(e) {
+        tbody.innerHTML = '<tr><td colspan="11" style="color:red">Error loading data</td></tr>';
+      }
+    }
+    load();
+  </script>
+</body>
+</html>
