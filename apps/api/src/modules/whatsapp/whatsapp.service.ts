@@ -248,7 +248,7 @@ export class WhatsAppService {
         include: { order: { include: { items: true } } },
       });
 
-      await this.sendText(from, `✅ Item updated: ${name} @ ₹${price}`, phoneNumberId);
+      await this.sendText(from, `✅ Item Updated!\n\n${name} — ₹${price}`, phoneNumberId);
 
       // Resend updated packing slip
       if (item) {
@@ -287,7 +287,7 @@ export class WhatsAppService {
 
     await this.sendText(
       sellerPhone,
-      `✏️ Editing: *${item.name}*\nCurrent: ${item.quantity} ${item.unit} — ₹${item.estimatedPrice ?? '?'}\n\nReply with:\nName, Price\n\nExample: "Aashirvaad Atta, 65"`,
+      `*✏️ Edit Item*\n\n📋 Current Item:\n${item.name} — ₹${item.estimatedPrice ?? '?'}\n\nReply with:\nName, Price\n\nExample:\nAashirvaad Atta, 65`,
       phoneNumberId,
     );
 
