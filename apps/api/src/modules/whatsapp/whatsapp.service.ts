@@ -226,14 +226,33 @@ export class WhatsAppService {
     }
 
     if (pending.action === 'seller_edit') {
-      // Seller edit: "Name, Price"
-      const parts = text.split(',').map((p) => p.trim());
-      const name = parts[0];
+      // Seller edit: "Name, Price" or "Name - Price" or "Name 40"
+      // Clean input: remove ₹, strip trailing chars
+      let cleanText = text.replace(/[₹]/g, '').trim();
+
+      // Try splitting by common separators
+      let parts: string[] = [];
+      if (cleanText.includes(',')) {
+        parts = cleanText.split(',').map((p) => p.trim());
+      } else if (cleanText.includes(' - ')) {
+        parts = cleanText.split(' - ').map((p) => p.trim());
+      } else if (cleanText.includes('-')) {
+        parts = cleanText.split('-').map((p) => p.trim());
+      } else {
+        // Try "Name Number" — find last number in text
+        const match = cleanText.match(/^(.+?)\s+(\d+\.?\d*)$/);
+        if (match) {
+          parts = [match[1]!.trim(), match[2]!];
+        } else {
+          parts = [cleanText, '0'];
+        }
+      }
+
+      const name = parts[0] || null;
       const price = parseFloat(parts[1] ?? '0') || 0;
 
       if (!name) {
         await this.sendText(from, '⚠️ Please reply with: Name, Price\n\nExample: "Aashirvaad Atta, 65"', phoneNumberId);
-        // Re-set pending so seller can try again
         this.pendingActions.set(from, { action: 'seller_edit', itemId: pending.itemId });
         return true;
       }
@@ -287,7 +306,7 @@ export class WhatsAppService {
 
     await this.sendText(
       sellerPhone,
-      `*✏️ Edit Item*\n\n📋 Current Item:\n${item.name} — ₹${item.estimatedPrice ?? '?'}\n\nReply with:\nName, Price\n\nExample:\nAashirvaad Atta, 65`,
+      `*✏️ Edit Item*\n\n📋 Current:\n${item.name} — ₹${item.estimatedPrice ?? '?'}\n\nReply with:\nName — Price\n\nExample:\nAashirvaad Atta — 65`,
       phoneNumberId,
     );
 
