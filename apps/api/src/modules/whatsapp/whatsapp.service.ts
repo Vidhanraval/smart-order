@@ -957,8 +957,19 @@ export class WhatsAppService {
 
       return waMessageId;
     } catch (error: unknown) {
-      const message = error instanceof Error ? error.message : String(error);
-      this.logger.error(`Failed to send interactive to ${to}: ${message}`);
+      const errMsg = error instanceof Error ? error.message : String(error);
+      const detail = (error as any)?.response?.data ? JSON.stringify((error as any).response.data) : '';
+      this.logger.error(`Failed to send interactive to ${to}: ${errMsg} ${detail}`);
+
+      // Fallback: send body text as plain text
+      const body = interactive.body as { text?: string } | undefined;
+      const header = interactive.header as { text?: string } | undefined;
+      if (body?.text) {
+        try {
+          await this.sendText(to, `📋 ${header?.text ?? 'Update'}\n\n${body.text}`, phoneNumberId);
+        } catch {}
+      }
+
       return null;
     }
   }
