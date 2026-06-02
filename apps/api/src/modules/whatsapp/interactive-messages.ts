@@ -203,41 +203,26 @@ export function buildPackingSlip(orderId: string, items: OrderItem[]): WhatsAppI
 
 // ── Pack item prompt (per-item found/not-found) ─────────────────────
 
-export function buildPackItemPrompt(item: OrderItem): WhatsAppInteractiveList {
-  const estPrice = item.estimatedPrice ?? 50;
-  // Generate price options around the estimated price
-  const priceOptions = [10, 20, 30, 40, 50, 60, 70, 80, 90, 100, 120, 150, 200, 250];
-  const nearbyPrices = priceOptions.filter((p) => p !== estPrice).slice(0, 10);
-
+export function buildPackItemPrompt(item: OrderItem): WhatsAppInteractiveButtons {
   return {
-    type: 'list',
+    type: 'button',
     header: { type: 'text', text: item.name },
     body: {
-      text: `${item.quantity} ${item.unit} — ₹${estPrice}\n\nMark status or pick a new price:`,
+      text: `${item.quantity} ${item.unit} — ₹${item.estimatedPrice ?? '?'}\n\nIs this item available?`,
     },
     action: {
-      button: 'Actions',
-      sections: [
+      buttons: [
         {
-          title: 'Status',
-          rows: [
-            { id: `found_${item.id}`, title: '✅ Found', description: 'Item is available' },
-            { id: `notfound_${item.id}`, title: '❌ Not Found', description: 'Suggest a replacement' },
-          ],
+          type: 'reply',
+          reply: { id: `found_${item.id}`, title: '✅ Found' },
         },
         {
-          title: '💰 Change Price',
-          rows: nearbyPrices.map((p) => ({
-            id: `price_${item.id}_${p}`,
-            title: `₹${p}`,
-            description: `Set price to ₹${p}`,
-          })),
+          type: 'reply',
+          reply: { id: `notfound_${item.id}`, title: '❌ Not Found' },
         },
         {
-          title: '✏️ Rename',
-          rows: [
-            { id: `rename_${item.id}`, title: '✏️ Rename Item', description: 'Change item name' },
-          ],
+          type: 'reply',
+          reply: { id: `editprice_${item.id}`, title: '💰 Price' },
         },
       ],
     },
