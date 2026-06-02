@@ -174,13 +174,19 @@ export class AiService {
   }
 
   private matchItem(name: string, fallbackUnit: string): { name: string; price: number; unit: string } {
-    // Try exact match first
-    if (ITEM_PRICES[name]) return ITEM_PRICES[name]!;
+    const lower = name.toLowerCase();
 
-    // Try partial match
+    // Try exact match first
+    if (ITEM_PRICES[lower]) return ITEM_PRICES[lower]!;
+
+    // Try partial match — use matched price/unit but KEEP the buyer's original name
     for (const [key, value] of Object.entries(ITEM_PRICES)) {
-      if (name.includes(key)) {
-        return value;
+      if (lower.includes(key)) {
+        return {
+          name: name.charAt(0).toUpperCase() + name.slice(1),
+          price: value.price,
+          unit: value.unit,
+        };
       }
     }
 
