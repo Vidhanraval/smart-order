@@ -295,22 +295,25 @@ export class WhatsAppService {
     await this.createOrderAndSendReview(from, parsed, text, senderName, sellerPhone, phoneNumberId);
   }
 
-  // ── Seller edit item ─────────────────────────────────────────────
+  // ── Seller inline price change ────────────────────────────────────
 
-  private async promptSellerEditItem(sellerPhone: string, itemId: string, phoneNumberId?: string) {
-    const item = await this.prisma.orderItem.findUnique({ where: { id: itemId } });
-    if (!item) {
-      await this.sendText(sellerPhone, '⚠️ Item not found.', phoneNumberId);
-      return;
-    }
+  private async handleSellerPriceChange(sellerPhone: string, itemId: string, price: number, phoneNumberId?: string) {
+    const item = await this.prisma.orderItem.findUnique({
+      where: { id: itemId },
+      include: { order: { include: { items: true } } },
+    });
+    if (!item) return;
 
-    await this.sendText(
-      sellerPhone,
-      `*✏️ Edit Item*\n\n📋 Current:\n${item.name} — ₹${item.estimatedPrice ?? '?'}\n\nReply with:\nName — Price\n\nExample:\nAashirvaad Atta — 65`,
-      phoneNumberId,
-    );
+    await this.prisma.orderItem.update({
+      where: { id: itemId },
+      data: { estimatedPrice: price },
+    });
 
-    this.pendingActions.set(sellerPhone, { action: 'seller_edit', itemId });
+    await this.sendText(sellerPhone, `✅ ${item.name} — ₹${price}`, phoneNumberId);
+
+    // Resend updated packing slip
+    const packingSlip = buildPackingSlip(item.orderId, item.order.items ?? []);
+    await this.sendInteractive(sellerPhone, packingSlip, phoneNumberId);
   }
 
   // ── Greeting detection ──────────────────────────────────────────
@@ -597,10 +600,12 @@ export class WhatsAppService {
         return;
       }
 
-      // editseller_<itemId> — Seller wants to edit item name/price
-      if (replyId.startsWith('editseller_')) {
-        const itemId = replyId.replace('editseller_', '');
-        await this.promptSellerEditItem(from, itemId, phoneNumberId);
+      // price_<itemId>_<amount> — Seller picks a new price inline
+      if (replyId.startsWith('price_')) {
+        const parts = replyId.split('_');
+        const price = parseFloat(parts.pop()!);
+        const itemId = parts.slice(1).join('_');
+        await this.handleSellerPriceChange(from, itemId, price, phoneNumberId);
         return;
       }
 
