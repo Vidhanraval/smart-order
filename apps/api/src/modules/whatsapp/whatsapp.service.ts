@@ -242,6 +242,9 @@ export class WhatsAppService {
   }
 
   private async sendGreeting(to: string, text: string, senderName?: string): Promise<void> {
+    // Ensure the buyer's number is stored in the DB even if they only send a greeting
+    await this.customersService.findOrCreate(to, senderName);
+
     const lower = text.toLowerCase().replace(/[!?.]+$/, '').trim();
 
     if (this.GREETING_WELLNESS.some((g) => lower === g || lower.startsWith(g))) {
