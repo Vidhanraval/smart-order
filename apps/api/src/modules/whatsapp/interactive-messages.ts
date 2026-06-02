@@ -147,11 +147,10 @@ const QUICK_PRICES = [10, 20, 30, 40, 50, 60, 70, 80, 100, 120, 150, 200];
 function priceRowsFor(item: OrderItem): Array<{ id: string; title: string; description?: string }> {
   const current = item.estimatedPrice ?? 50;
   return QUICK_PRICES.filter((p) => Math.abs(p - current) > 5 || p === current)
-    .slice(0, 5)
+    .slice(0, 3)
     .map((p) => ({
       id: `price_${item.id}_${p}`,
       title: p === current ? `💰 ₹${p} ✓` : `💰 ₹${p}`,
-      description: p === current ? 'Current price' : `Change price to ₹${p}`,
     }));
 }
 
@@ -188,13 +187,16 @@ export function buildPackingSlip(orderId: string, items: OrderItem[]): WhatsAppI
 
   for (const item of pendingItems) {
     const priceStr = item.estimatedPrice != null ? `₹${item.estimatedPrice}` : '?';
+    // WhatsApp section title max 24 chars — truncate if needed
+    const fullTitle = `${item.name} — ${priceStr}`;
+    const title = fullTitle.length > 22 ? fullTitle.substring(0, 19) + '...' : fullTitle;
     sections.push({
-      title: `📦 ${item.name} — ${item.quantity} ${item.unit} @ ${priceStr}`,
+      title,
       rows: [
-        { id: `found_${item.id}`, title: '✅ Found', description: 'Mark as available' },
-        { id: `notfound_${item.id}`, title: '❌ Not Found', description: 'Suggest replacement' },
+        { id: `found_${item.id}`, title: '✅ Found' },
+        { id: `notfound_${item.id}`, title: '❌ Not Found' },
         ...priceRowsFor(item),
-        { id: `rename_${item.id}`, title: '✏️ Rename', description: 'Change item name' },
+        { id: `rename_${item.id}`, title: '✏️ Rename' },
       ],
     });
   }
