@@ -174,4 +174,66 @@ export class OrdersService {
   getStatusLabel(status: string): string {
     return getStatusLabel(status as OrderStatus);
   }
+
+  // ── Dashboard: all data in one flat table ─────────────────────────
+
+  async getFullSummary() {
+    const rows = await this.prisma.$queryRawUnsafe<
+      Array<{
+        order_id: string;
+        order_date: Date;
+        order_status: string;
+        order_total: number | null;
+        original_input: string | null;
+        buyer_name: string | null;
+        buyer_number: string;
+        seller_name: string | null;
+        seller_number: string;
+        store_name: string | null;
+        items: string | null;
+        item_count: number;
+        last_message: string | null;
+        last_message_direction: string | null;
+        message_count: number;
+      }>
+    >(`
+      SELECT
+        o.id AS order_id,
+        o."createdAt" AS order_date,
+        o.status AS order_status,
+        o."totalPrice" AS order_total,
+        o."originalInput" AS original_input,
+        c.name AS buyer_name,
+        c."phoneNumber" AS buyer_number,
+        s.name AS seller_name,
+        s."phoneNumber" AS seller_number,
+        s."storeName" AS store_name,
+        STRING_AGG(oi.name || ' x' || oi.quantity || ' @₹' || COALESCE(oi."actualPrice", oi."estimatedPrice", 0), ', ') AS items,
+        COUNT(oi.id)::int AS item_count,
+        (
+          SELECT m.body FROM "Message" m
+          WHERE m."orderId" = o.id
+          ORDER BY m."createdAt" DESC LIMIT 1
+        ) AS last_message,
+        (
+          SELECT m.direction FROM "Message" m
+          WHERE m."orderId" = o.id
+          ORDER BY m."createdAt" DESC LIMIT 1
+        ) AS last_message_direction,
+        (
+          SELECT COUNT(*)::int FROM "Message" m WHERE m."orderId" = o.id
+        ) AS message_count
+      FROM "Order" o
+      JOIN "Customer" c ON o."customerId" = c.id
+      JOIN "Seller" s ON o."sellerId" = s.id
+      LEFT JOIN "OrderItem" oi ON oi."orderId" = o.id
+      GROUP BY o.id, c."phoneNumber", c.name, s."phoneNumber", s.name, s."storeName"
+      ORDER BY o."createdAt" DESC
+    `);
+
+    return rows.map((row) => ({
+      ...row,
+      order_total: row.order_total ? Number(row.order_total) : null,
+    }));
+  }
 }
