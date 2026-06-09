@@ -12,6 +12,8 @@ import {
   buildPackItemPrompt,
   buildReplacementReview,
   buildPickupReady,
+  buildOrderItemOptions,
+  buildDeleteConfirm,
 } from './interactive-messages';
 import axios from 'axios';
 
@@ -227,6 +229,33 @@ export class WhatsAppService {
       return true;
     }
 
+    if (pending.action === 'buyer_qty') {
+      const qty = parseInt(text.trim(), 10);
+      if (isNaN(qty) || qty <= 0) {
+        await this.sendText(from, '⚠️ Please reply with a valid number (e.g. 3):', phoneNumberId);
+        this.pendingActions.set(from, { action: 'buyer_qty', itemId: pending.itemId });
+        return true;
+      }
+
+      await this.prisma.orderItem.update({
+        where: { id: pending.itemId },
+        data: { quantity: qty },
+      });
+
+      // Resend updated order review
+      const item = await this.prisma.orderItem.findUnique({
+        where: { id: pending.itemId },
+        include: { order: { include: { items: true } } },
+      });
+
+      if (item) {
+        await this.sendText(from, `🔢 Quantity updated to *${qty}* ✅`, phoneNumberId);
+        const reviewList = buildOrderReviewList(item.orderId, item.order.items ?? []);
+        await this.sendInteractive(from, reviewList, phoneNumberId);
+      }
+      return true;
+    }
+
     if (pending.action === 'seller_rename') {
       const name = text.trim();
       if (!name) {
@@ -307,6 +336,75 @@ export class WhatsAppService {
       return true;
     }
 
+    if (pending.action === 'seller_edit_price') {
+      const priceText = text.replace(/[₹]/g, '').trim();
+      if (priceText.toLowerCase() === 'skip' || priceText === '') {
+        // Keep current price, move to name prompt
+        await this.sendText(
+          from,
+          `💲 Price unchanged.\n\n✏️ Reply with new name for the item (or *skip* to keep):`,
+          phoneNumberId,
+        );
+        this.pendingActions.set(from, { action: 'seller_edit_name', itemId: pending.itemId });
+        return true;
+      }
+
+      const price = parseFloat(priceText);
+      if (isNaN(price) || price <= 0) {
+        await this.sendText(from, '⚠️ Please enter a valid price (e.g. 60) or *skip*:', phoneNumberId);
+        this.pendingActions.set(from, { action: 'seller_edit_price', itemId: pending.itemId });
+        return true;
+      }
+
+      await this.prisma.orderItem.update({
+        where: { id: pending.itemId },
+        data: { estimatedPrice: price },
+      });
+
+      await this.sendText(
+        from,
+        `💲 Price updated to ₹${price}.\n\n✏️ Reply with new name (or *skip* to keep):`,
+        phoneNumberId,
+      );
+      this.pendingActions.set(from, { action: 'seller_edit_name', itemId: pending.itemId });
+      return true;
+    }
+
+    if (pending.action === 'seller_edit_name') {
+      const name = text.trim();
+      if (name.toLowerCase() === 'skip' || name === '') {
+        // Keep current name, finish editing
+        const item = await this.prisma.orderItem.findUnique({
+          where: { id: pending.itemId },
+          include: { order: { include: { items: true } } },
+        });
+        await this.sendText(from, `📝 Name unchanged. ✅ Edit complete!`, phoneNumberId);
+        if (item) {
+          const packingSlip = buildPackingSlip(item.orderId, item.order.items ?? []);
+          await this.sendInteractive(from, packingSlip, phoneNumberId);
+        }
+        return true;
+      }
+
+      await this.prisma.orderItem.update({
+        where: { id: pending.itemId },
+        data: { name },
+      });
+
+      const item = await this.prisma.orderItem.findUnique({
+        where: { id: pending.itemId },
+        include: { order: { include: { items: true } } },
+      });
+
+      await this.sendText(from, `📝 Renamed to: *${name}*\n✅ Edit complete!`, phoneNumberId);
+
+      if (item) {
+        const packingSlip = buildPackingSlip(item.orderId, item.order.items ?? []);
+        await this.sendInteractive(from, packingSlip, phoneNumberId);
+      }
+      return true;
+    }
+
     return false;
   }
 
@@ -318,8 +416,6 @@ export class WhatsAppService {
     sellerPhone?: string,
     phoneNumberId?: string,
   ) {
-    await this.sendText(from, '🔍 Parsing your order... Please wait a moment.', phoneNumberId);
-
     const parsed = await this.aiService.parseText(text);
     await this.createOrderAndSendReview(from, parsed, text, senderName, sellerPhone, phoneNumberId);
   }
@@ -591,13 +687,68 @@ export class WhatsAppService {
     this.logger.log(`Interactive reply: ${replyId} from ${from}`);
 
     try {
-      // edit_<itemId> — Buyer wants to edit an item
+      // edit_<itemId> — Buyer tapped an item → show options sub-menu
       if (replyId.startsWith('edit_')) {
         const itemId = replyId.replace('edit_', '');
         const item = await this.prisma.orderItem.findUnique({ where: { id: itemId } });
+        if (item) {
+          const menu = buildOrderItemOptions(item);
+          await this.sendInteractive(from, menu, phoneNumberId);
+        }
+        return;
+      }
+
+      // qty_<itemId> — Buyer wants to change quantity
+      if (replyId.startsWith('qty_')) {
+        const itemId = replyId.replace('qty_', '');
+        const item = await this.prisma.orderItem.findUnique({ where: { id: itemId } });
+        if (item) {
+          await this.sendText(
+            from,
+            `🔢 *${item.name}*\nCurrent qty: ${item.quantity} ${item.unit}\n\nReply with new quantity:`,
+            phoneNumberId,
+          );
+          this.pendingActions.set(from, { action: 'buyer_qty', itemId });
+        }
+        return;
+      }
+
+      // delete_<itemId> — Buyer wants to delete item → show confirmation
+      if (replyId.startsWith('delete_')) {
+        const itemId = replyId.replace('delete_', '');
+        const item = await this.prisma.orderItem.findUnique({ where: { id: itemId } });
+        if (item) {
+          const confirm = buildDeleteConfirm(item);
+          await this.sendInteractive(from, confirm, phoneNumberId);
+        }
+        return;
+      }
+
+      // confirmdelete_<itemId> — Buyer confirmed delete
+      if (replyId.startsWith('confirmdelete_')) {
+        const itemId = replyId.replace('confirmdelete_', '');
+        await this.handleBuyerDelete(from, itemId, phoneNumberId);
+        return;
+      }
+
+      // canceldelete_<itemId> — Buyer cancelled delete → back to options
+      if (replyId.startsWith('canceldelete_')) {
+        const itemId = replyId.replace('canceldelete_', '');
+        const item = await this.prisma.orderItem.findUnique({ where: { id: itemId } });
+        if (item) {
+          const menu = buildOrderItemOptions(item);
+          await this.sendInteractive(from, menu, phoneNumberId);
+        }
+        return;
+      }
+
+      // editdetail_<itemId> — Buyer wants to edit item details
+      if (replyId.startsWith('editdetail_')) {
+        const itemId = replyId.replace('editdetail_', '');
+        const item = await this.prisma.orderItem.findUnique({ where: { id: itemId } });
         await this.sendText(
           from,
-          `Editing: ${item?.name ?? 'item'}\n\nPlease reply with:\nName, Quantity, Unit, Price\n\nExample: "Atta, 5, kg, 300"`,
+          `✏️ Editing: ${item?.name ?? 'item'}\n\nReply with:\nName, Quantity, Unit, Price\n\nExample: "Atta, 5, kg, 300"`,
           phoneNumberId,
         );
         this.pendingActions.set(from, { action: 'edit', itemId });
@@ -790,34 +941,59 @@ export class WhatsAppService {
     item: { id: string; name: string; estimatedPrice: number | null },
     phoneNumberId?: string,
   ) {
-    const price = item.estimatedPrice ?? 50;
-    const prices = [price, price + 10, price + 20, price - 10, price + 50].filter((p) => p > 0);
-
-    await this.sendInteractive(
+    // Step 1: Ask for new price first
+    const currentPrice = item.estimatedPrice ?? 0;
+    await this.sendText(
       sellerPhone,
-      {
-        type: 'list',
-        header: { type: 'text', text: `✏️ ${item.name}` },
-        body: { text: `Edit price or rename` },
-        action: {
-          button: 'Edit',
-          sections: [
-            {
-              title: '💰 Quick Price',
-              rows: prices.map((p) => ({
-                id: `price_${item.id}_${p}`,
-                title: p === price ? `₹${p} ✓` : `₹${p}`,
-              })),
-            },
-            {
-              title: '✏️ Rename',
-              rows: [{ id: `rename_${item.id}`, title: '✏️ Rename Item' }],
-            },
-          ],
-        },
-      },
+      `✏️ *Edit: ${item.name}*\nCurrent price: ₹${currentPrice}\n\nReply with new price (or *skip* to keep):`,
       phoneNumberId,
     );
+    this.pendingActions.set(sellerPhone, { action: 'seller_edit_price', itemId: item.id });
+  }
+
+  // ── Buyer delete item ─────────────────────────────────────────────
+
+  private async handleBuyerDelete(buyerPhone: string, itemId: string, phoneNumberId?: string) {
+    const item = await this.prisma.orderItem.findUnique({
+      where: { id: itemId },
+      include: { order: { include: { items: true } } },
+    });
+
+    if (!item) {
+      await this.sendText(buyerPhone, '⚠️ Item not found.', phoneNumberId);
+      return;
+    }
+
+    const itemName = item.name;
+    const orderId = item.orderId;
+    const items = item.order.items ?? [];
+
+    // Delete the item
+    await this.prisma.orderItem.delete({ where: { id: itemId } });
+
+    await this.sendText(buyerPhone, `🗑 *${itemName}* removed from your order ✅`, phoneNumberId);
+
+    // Resend updated order review (or notify if no items left)
+    const remaining = await this.prisma.orderItem.findMany({
+      where: { orderId },
+    });
+
+    if (remaining.length === 0) {
+      await this.sendText(
+        buyerPhone,
+        '🛒 Your order is now empty. Send a new shopping list to start over!',
+        phoneNumberId,
+      );
+      // Delete the empty order
+      try {
+        await this.prisma.order.delete({ where: { id: orderId } });
+      } catch {
+        this.logger.warn(`Could not delete empty order ${orderId}`);
+      }
+    } else {
+      const reviewList = buildOrderReviewList(orderId, remaining);
+      await this.sendInteractive(buyerPhone, reviewList, phoneNumberId);
+    }
   }
 
   private async markItemFound(sellerPhone: string, itemId: string, phoneNumberId?: string) {

@@ -95,6 +95,43 @@ export function buildOrderReviewList(orderId: string, items: OrderItem[]): Whats
   };
 }
 
+// ── Order item options (buyer taps an item in review) ──────────────────
+
+export function buildOrderItemOptions(item: OrderItem): WhatsAppInteractiveButtons {
+  return {
+    type: 'button',
+    header: { type: 'text', text: item.name },
+    body: {
+      text: `${item.quantity} ${item.unit} — ₹${item.estimatedPrice ?? '?'}`,
+    },
+    action: {
+      buttons: [
+        { type: 'reply', reply: { id: `qty_${item.id}`, title: '🔢 Qty' } },
+        { type: 'reply', reply: { id: `delete_${item.id}`, title: '🗑 Delete' } },
+        { type: 'reply', reply: { id: `editdetail_${item.id}`, title: '✏️ Edit' } },
+      ],
+    },
+  };
+}
+
+// ── Delete confirmation ──────────────────────────────────────────────
+
+export function buildDeleteConfirm(item: OrderItem): WhatsAppInteractiveButtons {
+  return {
+    type: 'button',
+    header: { type: 'text', text: `🗑 Delete?` },
+    body: {
+      text: `${item.quantity}x ${item.name} — ₹${item.estimatedPrice ?? '?'}\n\nAre you sure you want to remove this item?`,
+    },
+    action: {
+      buttons: [
+        { type: 'reply', reply: { id: `confirmdelete_${item.id}`, title: '✅ Yes, Delete' } },
+        { type: 'reply', reply: { id: `canceldelete_${item.id}`, title: '❌ Cancel' } },
+      ],
+    },
+  };
+}
+
 // ── Replacement review (buyer sees after seller suggests replacements) ──
 
 export function buildReplacementReview(
