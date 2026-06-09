@@ -284,11 +284,10 @@ export class WhatsAppService {
     }
 
     if (pending.action === 'seller_edit') {
-      // Seller edit: "Name, Price" or "Name - Price" or "Name 40"
-      // Clean input: remove ₹, strip trailing chars
+      // Seller edit: "Price, Name" or "Name, Price" or just "Price"
       let cleanText = text.replace(/[₹]/g, '').trim();
 
-      // Try splitting by common separators
+      // Split by common separators
       let parts: string[] = [];
       if (cleanText.includes(',')) {
         parts = cleanText.split(',').map((p) => p.trim());
@@ -296,38 +295,75 @@ export class WhatsAppService {
         parts = cleanText.split(' - ').map((p) => p.trim());
       } else if (cleanText.includes('-')) {
         parts = cleanText.split('-').map((p) => p.trim());
+      } else if (cleanText.includes('\n')) {
+        parts = cleanText.split('\n').map((p) => p.trim());
       } else {
-        // Try "Name Number" — find last number in text
-        const match = cleanText.match(/^(.+?)\s+(\d+\.?\d*)$/);
-        if (match) {
-          parts = [match[1]!.trim(), match[2]!];
+        parts = [cleanText];
+      }
+
+      let price: number;
+      let name: string | null = null;
+
+      if (parts.length === 1) {
+        // Only one value — could be just price or just name
+        const num = parseFloat(parts[0]!);
+        if (!isNaN(num) && num > 0) {
+          price = num;
         } else {
-          parts = [cleanText, '0'];
+          price = 0;
+          name = parts[0]!;
+        }
+      } else {
+        // Two values — detect order: first is number = "Price, Name", else "Name, Price"
+        const first = parts[0]!;
+        const second = parts[1]!;
+        const firstNum = parseFloat(first);
+        const secondNum = parseFloat(second);
+
+        if (!isNaN(firstNum) && firstNum > 0) {
+          // Format: "Price, Name"
+          price = firstNum;
+          name = second || null;
+        } else if (!isNaN(secondNum) && secondNum > 0) {
+          // Format: "Name, Price"
+          price = secondNum;
+          name = first || null;
+        } else {
+          // Can't determine — treat first as name, second as price
+          price = secondNum || 0;
+          name = first || null;
         }
       }
 
-      const name = parts[0] || null;
-      const price = parseFloat(parts[1] ?? '0') || 0;
-
-      if (!name) {
-        await this.sendText(from, '⚠️ Please reply with: Name, Price\n\nExample: "Aashirvaad Atta, 65"', phoneNumberId);
-        this.pendingActions.set(from, { action: 'seller_edit', itemId: pending.itemId });
-        return true;
-      }
-
-      await this.prisma.orderItem.update({
-        where: { id: pending.itemId },
-        data: { name, estimatedPrice: price },
-      });
-
-      const item = await this.prisma.orderItem.findUnique({
+      // Fetch current item to get existing values
+      const currentItem = await this.prisma.orderItem.findUnique({
         where: { id: pending.itemId },
         include: { order: { include: { items: true } } },
       });
 
-      await this.sendText(from, `✅ Item Updated!\n\n${name} — ₹${price}`, phoneNumberId);
+      if (!currentItem) {
+        await this.sendText(from, '⚠️ Item not found.', phoneNumberId);
+        return true;
+      }
+
+      const finalName = name || currentItem.name;
+      const finalPrice = price > 0 ? price : (currentItem.estimatedPrice ?? 0);
+
+      await this.prisma.orderItem.update({
+        where: { id: pending.itemId },
+        data: { name: finalName, estimatedPrice: finalPrice },
+      });
+
+      const confirmParts: string[] = [];
+      if (name) confirmParts.push(`📝 ${name}`);
+      if (price > 0) confirmParts.push(`💰 ₹${price}`);
+      await this.sendText(from, `✅ Updated: ${finalName} — ₹${finalPrice}`, phoneNumberId);
 
       // Resend updated packing slip
+      const item = await this.prisma.orderItem.findUnique({
+        where: { id: pending.itemId },
+        include: { order: { include: { items: true } } },
+      });
       if (item) {
         const packingSlip = buildPackingSlip(item.orderId, item.order.items ?? []);
         await this.sendInteractive(from, packingSlip, phoneNumberId);
@@ -941,14 +977,19 @@ export class WhatsAppService {
     item: { id: string; name: string; estimatedPrice: number | null },
     phoneNumberId?: string,
   ) {
-    // Step 1: Ask for new price first
     const currentPrice = item.estimatedPrice ?? 0;
     await this.sendText(
       sellerPhone,
-      `✏️ *Edit: ${item.name}*\nCurrent price: ₹${currentPrice}\n\nReply with new price (or *skip* to keep):`,
+      `✏️ *Edit: ${item.name}*\n` +
+      `Current: ₹${currentPrice}\n\n` +
+      `💰 *Price:* _______\n` +
+      `📝 *Rename:* _______\n\n` +
+      `Reply with: *Price, New Name*\n` +
+      `Example: 60, Aashirvaad Atta\n` +
+      `Or just: 60  (to keep name)`,
       phoneNumberId,
     );
-    this.pendingActions.set(sellerPhone, { action: 'seller_edit_price', itemId: item.id });
+    this.pendingActions.set(sellerPhone, { action: 'seller_edit', itemId: item.id });
   }
 
   // ── Buyer delete item ─────────────────────────────────────────────
