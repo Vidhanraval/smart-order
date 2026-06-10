@@ -13,7 +13,7 @@ import {
   buildPickupReady,
   buildOrderItemOptions,
   buildDeleteConfirm,
-  buildInlinePacking,
+  buildActionPackingSlip,
   buildInlineEditOptions,
   buildPricePicker,
 } from './interactive-messages';
@@ -167,7 +167,9 @@ export class WhatsAppService {
 
         const handled = await this.handleContextualReply(from, text, resolvedPhoneNumberId);
         if (!handled) {
-          await this.handleNewOrderInput(
+          const cmdHandled = await this.handleSellerTextCommand(from, text, resolvedPhoneNumberId);
+          if (!cmdHandled) {
+            await this.handleNewOrderInput(
             from,
             storePrefix?.text ?? text,
             null,
@@ -175,6 +177,7 @@ export class WhatsAppService {
             orderSellerPhone,
             orderPhoneNumberId,
           );
+          }
         }
       } else if (message.type === 'audio' && message.audio?.id) {
         await this.handleAudioOrder(from, message.audio.id, senderName, resolvedSellerPhone, resolvedPhoneNumberId);
@@ -436,6 +439,81 @@ export class WhatsAppService {
       if (item) {
         await this.sendInlinePackingSlip(from, item.orderId, phoneNumberId);
       }
+      return true;
+    }
+
+    return false;
+  }
+
+  /**
+   * Handle seller text commands like "edit Shampoo", "not Atta"
+   * (used when items exceed 5 and Edit section can't fit in the list)
+   */
+  private async handleSellerTextCommand(from: string, text: string, phoneNumberId?: string): Promise<boolean> {
+    const t = text.toLowerCase().trim();
+
+    // "edit <item name>"
+    const editMatch = t.match(/^edit\s+(.+)/i);
+    if (editMatch) {
+      const nameQuery = editMatch[1]!.trim();
+      // Find the item by partial name match in the seller's active orders
+      const items = await this.prisma.orderItem.findMany({
+        where: {
+          order: {
+            seller: { phoneNumber: from },
+            status: 'PACKING',
+          },
+          status: { in: ['PENDING', 'REPLACEMENT_ACCEPTED'] },
+        },
+        include: { order: true },
+      });
+
+      const matched = items.find((i) =>
+        i.name.toLowerCase().includes(nameQuery.toLowerCase()),
+      );
+
+      if (matched) {
+        await this.showInlineEditor(from, matched, phoneNumberId);
+        return true;
+      }
+
+      await this.sendText(
+        from,
+        `❓ Item *"${nameQuery}"* not found in current packing list.\n\nTry the exact item name.`,
+        phoneNumberId,
+      );
+      return true;
+    }
+
+    // "not <item name>" — mark as not found
+    const notMatch = t.match(/^not\s+(.+)/i);
+    if (notMatch) {
+      const nameQuery = notMatch[1]!.trim();
+      const items = await this.prisma.orderItem.findMany({
+        where: {
+          order: {
+            seller: { phoneNumber: from },
+            status: 'PACKING',
+          },
+          status: { in: ['PENDING', 'REPLACEMENT_ACCEPTED'] },
+        },
+        include: { order: true },
+      });
+
+      const matched = items.find((i) =>
+        i.name.toLowerCase().includes(nameQuery.toLowerCase()),
+      );
+
+      if (matched) {
+        await this.markItemNotFound(from, matched.id, phoneNumberId);
+        return true;
+      }
+
+      await this.sendText(
+        from,
+        `❓ Item *"${nameQuery}"* not found in current packing list.`,
+        phoneNumberId,
+      );
       return true;
     }
 
@@ -1212,8 +1290,9 @@ export class WhatsAppService {
   // ── Inline packing slip sender ────────────────────────────────────
 
   /**
-   * Sends the packing slip as inline per-item button messages.
-   * Each pending item gets its own message with Found/Not Found/Edit buttons.
+   * Sends the packing slip as a SINGLE list with action-based sections.
+   * All items in one box — sections: Found, Not Found, Edit.
+   * Direct 1-tap action, no sub-menu.
    */
   private async sendInlinePackingSlip(sellerPhone: string, orderId: string, phoneNumberId?: string) {
     const order = await this.prisma.order.findUnique({
@@ -1222,17 +1301,17 @@ export class WhatsAppService {
     });
     if (!order) return;
 
-    const packing = buildInlinePacking(orderId, order.items ?? []);
+    const packing = buildActionPackingSlip(orderId, order.items ?? []);
 
-    // Send header text
-    await this.sendText(sellerPhone, packing.header, phoneNumberId);
+    // Send the single list message (all items inside, action-based sections)
+    await this.sendInteractive(sellerPhone, packing.listMessage, phoneNumberId);
 
-    // Send per-item button messages (each with Found/Not Found/Edit)
-    for (const im of packing.itemMessages) {
-      await this.sendInteractive(sellerPhone, im.message, phoneNumberId);
+    // Send text command hint if items couldn't fit all sections
+    if (packing.commandHint) {
+      await this.sendText(sellerPhone, packing.commandHint, phoneNumberId);
     }
 
-    // Send finalize button
+    // Always send the finalize button
     await this.sendInteractive(sellerPhone, packing.finalizeMessage, phoneNumberId);
   }
 

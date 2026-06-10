@@ -242,25 +242,27 @@ export function buildPackItemPrompt(item: OrderItem): WhatsAppInteractiveButtons
   };
 }
 
-// ── Inline packing slip (per-item button messages) ──────────────────
-// Each pending item gets its own button message with Found/Not Found/Edit
-// buttons right below the item — no sub-menu tap needed.
+// ── Action-based packing slip (single list, per-action sections) ────────
+// All items in ONE box. Sections organized by ACTION (Found/Not Found/Edit).
+// Direct 1-tap — no sub-menu.
+// WhatsApp limit: 10 rows total. ≤3 items → all 3 sections fit (9 rows).
+// 4-5 items → Found + Not Found sections (≤10 rows), edit via text reply.
+// 6+ items → Found section only (≤10 rows), footer explains text commands.
 
-export interface InlinePackingMessages {
-  /** Text header summarising found/missing items */
-  header: string;
-  /** Per-item button messages for each pending item */
-  itemMessages: Array<{
-    itemId: string;
-    message: WhatsAppInteractiveButtons;
-  }>;
+export interface ActionPackingSlip {
+  /** The single list message with all items + actions */
+  listMessage: WhatsAppInteractiveList;
+  /** Text commands hint (for items that couldn't fit all sections) */
+  commandHint?: string;
   /** Finalize button message */
   finalizeMessage: WhatsAppInteractiveButtons;
-  /** Whether there are any pending items left */
+  /** Whether there are any pending items */
   hasPending: boolean;
+  /** Items that need text-based edit (couldn't fit Edit section) */
+  textEditItems: OrderItem[];
 }
 
-export function buildInlinePacking(orderId: string, items: OrderItem[]): InlinePackingMessages {
+export function buildActionPackingSlip(orderId: string, items: OrderItem[]): ActionPackingSlip {
   const pendingItems = items.filter(
     (i) => i.status === 'PENDING' || i.status === 'REPLACEMENT_ACCEPTED',
   );
@@ -270,27 +272,100 @@ export function buildInlinePacking(orderId: string, items: OrderItem[]): InlineP
   );
 
   // Build header text
-  let header = '🛒 *Packing Slip*\n\n';
+  let bodyText = '';
   if (foundItems.length > 0) {
-    header += `✅ Found: ${foundItems.map((i) => i.name).join(', ')}\n`;
+    bodyText += `✅ Found: ${foundItems.map((i) => i.name).join(', ')}\n`;
   }
   if (notFoundItems.length > 0) {
-    header += `❌ Missing:\n`;
+    bodyText += `❌ Missing:\n`;
     for (const i of notFoundItems) {
-      header += `   ${i.name}`;
-      if (i.replacementName) header += ` → ${i.replacementName} @ ₹${i.replacementPrice ?? '?'}`;
-      header += '\n';
+      bodyText += `   ${i.name}`;
+      if (i.replacementName) bodyText += ` → ${i.replacementName} @ ₹${i.replacementPrice ?? '?'}`;
+      bodyText += '\n';
     }
   }
-  if (pendingItems.length > 0) {
-    header += `\n📋 *Pending (${pendingItems.length})* — tap buttons below:`;
+  if (pendingItems.length === 0) {
+    bodyText += '\n✅ All items handled!';
+  } else {
+    bodyText += `\n📋 *${pendingItems.length} pending* — tap below:`;
   }
 
-  // Per-item button messages
-  const itemMessages = pendingItems.map((item) => ({
-    itemId: item.id,
-    message: buildPackItemPrompt(item),
-  }));
+  const sections: Array<{ title?: string; rows: Array<{ id: string; title: string; description?: string }> }> = [];
+  let commandHint: string | undefined;
+  const textEditItems: OrderItem[] = [];
+
+  const itemCount = pendingItems.length;
+
+  if (itemCount <= 3) {
+    // All 3 sections fit: Found, Not Found, Edit (max 9 rows)
+    sections.push({
+      title: '✅ Found — tap item to mark',
+      rows: pendingItems.map((item) => ({
+        id: `found_${item.id}`,
+        title: `${item.name}`,
+        description: `${item.quantity} ${item.unit} — ₹${item.estimatedPrice ?? '?'}`,
+      })),
+    });
+    sections.push({
+      title: '❌ Not Found — tap item to mark',
+      rows: pendingItems.map((item) => ({
+        id: `notfound_${item.id}`,
+        title: `${item.name}`,
+        description: `Will ask for replacement`,
+      })),
+    });
+    sections.push({
+      title: '✏️ Edit — tap item to edit',
+      rows: pendingItems.map((item) => ({
+        id: `edititem_${item.id}`,
+        title: `${item.name}`,
+        description: `Change price or rename`,
+      })),
+    });
+  } else if (itemCount <= 5) {
+    // 4-5 items: Found + Not Found (max 10 rows), edit via text
+    sections.push({
+      title: '✅ Found — tap item',
+      rows: pendingItems.map((item) => ({
+        id: `found_${item.id}`,
+        title: `${item.name}`,
+        description: `${item.quantity} ${item.unit} — ₹${item.estimatedPrice ?? '?'}`,
+      })),
+    });
+    sections.push({
+      title: '❌ Not Found — tap item',
+      rows: pendingItems.map((item) => ({
+        id: `notfound_${item.id}`,
+        title: `${item.name}`,
+        description: `Will ask for replacement`,
+      })),
+    });
+    commandHint = '✏️ To edit: reply "edit <item>" (e.g. edit Shampoo)';
+    textEditItems.push(...pendingItems);
+  } else {
+    // 6+ items: Found section only, hint for other actions
+    sections.push({
+      title: '✅ Found — tap item',
+      rows: pendingItems.slice(0, 10).map((item) => ({
+        id: `found_${item.id}`,
+        title: `${item.name}`,
+        description: `${item.quantity} ${item.unit} — ₹${item.estimatedPrice ?? '?'}`,
+      })),
+    });
+    commandHint = '❌ Reply "not <item>" to mark missing\n✏️ Reply "edit <item>" to edit';
+    textEditItems.push(...pendingItems);
+  }
+
+  const listMessage: WhatsAppInteractiveList = {
+    type: 'list',
+    header: { type: 'text', text: '🛒 Packing Slip' },
+    body: { text: bodyText },
+    footer: { text: commandHint || 'Tap item for direct action' },
+    action: {
+      button: 'Pack Items',
+      sections,
+    },
+  };
 
   // Finalize button
   const finalizeMessage: WhatsAppInteractiveButtons = {
@@ -308,7 +383,7 @@ export function buildInlinePacking(orderId: string, items: OrderItem[]): InlineP
     },
   };
 
-  return { header, itemMessages, finalizeMessage, hasPending: pendingItems.length > 0 };
+  return { listMessage, commandHint, finalizeMessage, hasPending: pendingItems.length > 0, textEditItems };
 }
 
 // ── Inline seller edit (button-driven price/rename) ─────────────────
