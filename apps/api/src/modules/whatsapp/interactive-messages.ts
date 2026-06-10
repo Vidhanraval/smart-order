@@ -242,6 +242,130 @@ export function buildPackItemPrompt(item: OrderItem): WhatsAppInteractiveButtons
   };
 }
 
+// ── Inline packing slip (per-item button messages) ──────────────────
+// Each pending item gets its own button message with Found/Not Found/Edit
+// buttons right below the item — no sub-menu tap needed.
+
+export interface InlinePackingMessages {
+  /** Text header summarising found/missing items */
+  header: string;
+  /** Per-item button messages for each pending item */
+  itemMessages: Array<{
+    itemId: string;
+    message: WhatsAppInteractiveButtons;
+  }>;
+  /** Finalize button message */
+  finalizeMessage: WhatsAppInteractiveButtons;
+  /** Whether there are any pending items left */
+  hasPending: boolean;
+}
+
+export function buildInlinePacking(orderId: string, items: OrderItem[]): InlinePackingMessages {
+  const pendingItems = items.filter(
+    (i) => i.status === 'PENDING' || i.status === 'REPLACEMENT_ACCEPTED',
+  );
+  const foundItems = items.filter((i) => i.status === 'FOUND');
+  const notFoundItems = items.filter(
+    (i) => i.status === 'NOT_FOUND' || i.status === 'REPLACEMENT_SUGGESTED',
+  );
+
+  // Build header text
+  let header = '🛒 *Packing Slip*\n\n';
+  if (foundItems.length > 0) {
+    header += `✅ Found: ${foundItems.map((i) => i.name).join(', ')}\n`;
+  }
+  if (notFoundItems.length > 0) {
+    header += `❌ Missing:\n`;
+    for (const i of notFoundItems) {
+      header += `   ${i.name}`;
+      if (i.replacementName) header += ` → ${i.replacementName} @ ₹${i.replacementPrice ?? '?'}`;
+      header += '\n';
+    }
+  }
+  if (pendingItems.length > 0) {
+    header += `\n📋 *Pending (${pendingItems.length})* — tap buttons below:`;
+  }
+
+  // Per-item button messages
+  const itemMessages = pendingItems.map((item) => ({
+    itemId: item.id,
+    message: buildPackItemPrompt(item),
+  }));
+
+  // Finalize button
+  const finalizeMessage: WhatsAppInteractiveButtons = {
+    type: 'button',
+    header: { type: 'text', text: '📦 Finish Packing' },
+    body: {
+      text: pendingItems.length > 0
+        ? `${pendingItems.length} item(s) still pending. Finalize anyway?`
+        : 'All items handled! Ready to finalize?',
+    },
+    action: {
+      buttons: [
+        { type: 'reply', reply: { id: `finalize_${orderId}`, title: '✅ Finalize' } },
+      ],
+    },
+  };
+
+  return { header, itemMessages, finalizeMessage, hasPending: pendingItems.length > 0 };
+}
+
+// ── Inline seller edit (button-driven price/rename) ─────────────────
+
+export function buildInlineEditOptions(item: OrderItem): WhatsAppInteractiveButtons {
+  return {
+    type: 'button',
+    header: { type: 'text', text: `✏️ Edit: ${item.name}` },
+    body: {
+      text: `${item.quantity} ${item.unit} — ₹${item.estimatedPrice ?? '?'}`,
+    },
+    action: {
+      buttons: [
+        { type: 'reply', reply: { id: `setprice_${item.id}`, title: '💰 Price' } },
+        { type: 'reply', reply: { id: `setname_${item.id}`, title: '📝 Rename' } },
+        { type: 'reply', reply: { id: `editdone_${item.id}`, title: '✅ Done' } },
+      ],
+    },
+  };
+}
+
+// ── Common price picker (list) ──────────────────────────────────────
+
+export function buildPricePicker(item: OrderItem): WhatsAppInteractiveList {
+  const prices = [10, 20, 30, 40, 50, 60, 80, 100, 150, 200, 250, 300, 500];
+  return {
+    type: 'list',
+    header: { type: 'text', text: `💰 Price: ${item.name}` },
+    body: {
+      text: `Current: ₹${item.estimatedPrice ?? '?'}\nPick a price or type your own:`,
+    },
+    action: {
+      button: 'Select Price',
+      sections: [
+        {
+          title: 'Common Prices',
+          rows: prices.map((p) => ({
+            id: `price_${item.id}_${p}`,
+            title: `₹${p}`,
+            description: `Set price to ₹${p}`,
+          })),
+        },
+        {
+          title: 'Other',
+          rows: [
+            {
+              id: `pricecustom_${item.id}`,
+              title: '✏️ Custom Price',
+              description: 'Type your own price',
+            },
+          ],
+        },
+      ],
+    },
+  };
+}
+
 // ── Pickup ready receipt ───────────────────────────────────────────
 
 export function buildPickupReady(storeName: string, total: number, items: OrderItem[]): string {

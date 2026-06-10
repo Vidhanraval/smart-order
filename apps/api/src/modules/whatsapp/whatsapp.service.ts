@@ -8,12 +8,14 @@ import { SellersService } from '../sellers/sellers.service';
 import { WhatsAppMessage, WhatsAppWebhookPayload } from './dto/whatsapp-webhook.dto';
 import {
   buildOrderReviewList,
-  buildPackingSlip,
   buildPackItemPrompt,
   buildReplacementReview,
   buildPickupReady,
   buildOrderItemOptions,
   buildDeleteConfirm,
+  buildInlinePacking,
+  buildInlineEditOptions,
+  buildPricePicker,
 } from './interactive-messages';
 import axios from 'axios';
 
@@ -277,8 +279,7 @@ export class WhatsAppService {
       await this.sendText(from, `✅ Renamed to: ${name}`, phoneNumberId);
 
       if (item) {
-        const packingSlip = buildPackingSlip(item.orderId, item.order.items ?? []);
-        await this.sendInteractive(from, packingSlip, phoneNumberId);
+        await this.sendInlinePackingSlip(from, item.orderId, phoneNumberId);
       }
       return true;
     }
@@ -359,14 +360,13 @@ export class WhatsAppService {
       if (price > 0) confirmParts.push(`💰 ₹${price}`);
       await this.sendText(from, `✅ Updated: ${finalName} — ₹${finalPrice}`, phoneNumberId);
 
-      // Resend updated packing slip
+      // Resend updated inline packing slip
       const item = await this.prisma.orderItem.findUnique({
         where: { id: pending.itemId },
         include: { order: { include: { items: true } } },
       });
       if (item) {
-        const packingSlip = buildPackingSlip(item.orderId, item.order.items ?? []);
-        await this.sendInteractive(from, packingSlip, phoneNumberId);
+        await this.sendInlinePackingSlip(from, item.orderId, phoneNumberId);
       }
 
       return true;
@@ -416,8 +416,7 @@ export class WhatsAppService {
         });
         await this.sendText(from, `📝 Name unchanged. ✅ Edit complete!`, phoneNumberId);
         if (item) {
-          const packingSlip = buildPackingSlip(item.orderId, item.order.items ?? []);
-          await this.sendInteractive(from, packingSlip, phoneNumberId);
+          await this.sendInlinePackingSlip(from, item.orderId, phoneNumberId);
         }
         return true;
       }
@@ -435,8 +434,7 @@ export class WhatsAppService {
       await this.sendText(from, `📝 Renamed to: *${name}*\n✅ Edit complete!`, phoneNumberId);
 
       if (item) {
-        const packingSlip = buildPackingSlip(item.orderId, item.order.items ?? []);
-        await this.sendInteractive(from, packingSlip, phoneNumberId);
+        await this.sendInlinePackingSlip(from, item.orderId, phoneNumberId);
       }
       return true;
     }
@@ -472,9 +470,8 @@ export class WhatsAppService {
 
     await this.sendText(sellerPhone, `✅ ${item.name} — ₹${price}`, phoneNumberId);
 
-    // Resend updated packing slip
-    const packingSlip = buildPackingSlip(item.orderId, item.order.items ?? []);
-    await this.sendInteractive(sellerPhone, packingSlip, phoneNumberId);
+    // Resend updated inline packing slip
+    await this.sendInlinePackingSlip(sellerPhone, item.orderId, phoneNumberId);
   }
 
   // ── Greeting detection ──────────────────────────────────────────
@@ -858,6 +855,61 @@ export class WhatsAppService {
         return;
       }
 
+      // setprice_<itemId> — Seller wants to change price → show price picker
+      if (replyId.startsWith('setprice_')) {
+        const itemId = replyId.replace('setprice_', '');
+        const item = await this.prisma.orderItem.findUnique({ where: { id: itemId } });
+        if (item) {
+          const picker = buildPricePicker(item);
+          await this.sendInteractive(from, picker, phoneNumberId);
+        }
+        return;
+      }
+
+      // setname_<itemId> — Seller wants to rename → prompt for text
+      if (replyId.startsWith('setname_')) {
+        const itemId = replyId.replace('setname_', '');
+        const item = await this.prisma.orderItem.findUnique({ where: { id: itemId } });
+        if (item) {
+          await this.sendText(
+            from,
+            `📝 Rename: *${item.name}*\n\nReply with new name:`,
+            phoneNumberId,
+          );
+          this.pendingActions.set(from, { action: 'seller_rename', itemId });
+        }
+        return;
+      }
+
+      // editdone_<itemId> — Seller finished editing → resend packing slip
+      if (replyId.startsWith('editdone_')) {
+        const itemId = replyId.replace('editdone_', '');
+        const item = await this.prisma.orderItem.findUnique({
+          where: { id: itemId },
+          include: { order: { include: { items: true } } },
+        });
+        if (item) {
+          await this.sendText(from, '✅ Edit complete!', phoneNumberId);
+          await this.sendInlinePackingSlip(from, item.orderId, phoneNumberId);
+        }
+        return;
+      }
+
+      // pricecustom_<itemId> — Seller wants custom price → prompt for text
+      if (replyId.startsWith('pricecustom_')) {
+        const itemId = replyId.replace('pricecustom_', '');
+        const item = await this.prisma.orderItem.findUnique({ where: { id: itemId } });
+        if (item) {
+          await this.sendText(
+            from,
+            `💰 Enter price for *${item.name}*\nCurrent: ₹${item.estimatedPrice ?? '?'}\n\nReply with price (e.g. 60):`,
+            phoneNumberId,
+          );
+          this.pendingActions.set(from, { action: 'seller_edit_price', itemId });
+        }
+        return;
+      }
+
       // pack_<itemId> — Seller wants to pack this item
       if (replyId.startsWith('pack_')) {
         const itemId = replyId.replace('pack_', '');
@@ -934,10 +986,9 @@ export class WhatsAppService {
 
     await Promise.all([buyerMsg, sellerMsg]);
 
-    // Start packing and send packing slip
+    // Start packing and send inline packing slip (per-item buttons)
     await this.ordersService.transitionStatus(orderId, 'PACKING');
-    const packingSlip = buildPackingSlip(orderId, order.items ?? []);
-    await this.sendInteractive(order.seller.phoneNumber, packingSlip, sellerPhoneNumberId);
+    await this.sendInlinePackingSlip(order.seller.phoneNumber, orderId, sellerPhoneNumberId);
   }
 
   private async promptPackItem(sellerPhone: string, itemId: string, phoneNumberId?: string) {
@@ -970,26 +1021,15 @@ export class WhatsAppService {
     await this.sendInteractive(sellerPhone, prompt, phoneNumberId);
   }
 
-  // ── Inline editor (via Edit button) ───────────────────────────────
+  // ── Inline editor (button-driven via Edit button) ─────────────────
 
   private async showInlineEditor(
     sellerPhone: string,
     item: { id: string; name: string; estimatedPrice: number | null },
     phoneNumberId?: string,
   ) {
-    const currentPrice = item.estimatedPrice ?? 0;
-    await this.sendText(
-      sellerPhone,
-      `✏️ *Edit: ${item.name}*\n` +
-      `Current: ₹${currentPrice}\n\n` +
-      `💰 *Price:* _______\n` +
-      `📝 *Rename:* _______\n\n` +
-      `Reply with: *Price, New Name*\n` +
-      `Example: 60, Aashirvaad Atta\n` +
-      `Or just: 60  (to keep name)`,
-      phoneNumberId,
-    );
-    this.pendingActions.set(sellerPhone, { action: 'seller_edit', itemId: item.id });
+    const editOptions = buildInlineEditOptions(item as any);
+    await this.sendInteractive(sellerPhone, editOptions, phoneNumberId);
   }
 
   // ── Buyer delete item ─────────────────────────────────────────────
@@ -1041,14 +1081,13 @@ export class WhatsAppService {
     await this.ordersService.updateItemStatus(itemId, 'FOUND');
     await this.sendText(sellerPhone, '✅ Marked as found!', phoneNumberId);
 
-    // Resend updated packing slip
+    // Resend updated inline packing slip
     const item = await this.prisma.orderItem.findUnique({
       where: { id: itemId },
       include: { order: { include: { items: true } } },
     });
     if (item) {
-      const packingSlip = buildPackingSlip(item.orderId, item.order.items ?? []);
-      await this.sendInteractive(sellerPhone, packingSlip, phoneNumberId);
+      await this.sendInlinePackingSlip(sellerPhone, item.orderId, phoneNumberId);
     }
   }
 
@@ -1120,8 +1159,7 @@ export class WhatsAppService {
     if (seller) {
       const sellerPnId = seller.seller.phoneNumberId ?? phoneNumberId;
       await this.sendText(seller.seller.phoneNumber, `Customer accepted replacement for "${item.name}".`, sellerPnId);
-      const packingSlip = buildPackingSlip(item.orderId, seller.items ?? []);
-      await this.sendInteractive(seller.seller.phoneNumber, packingSlip, sellerPnId);
+      await this.sendInlinePackingSlip(seller.seller.phoneNumber, item.orderId, sellerPnId);
     }
   }
 
@@ -1145,8 +1183,7 @@ export class WhatsAppService {
     if (seller) {
       const sellerPnId = seller.seller.phoneNumberId ?? phoneNumberId;
       await this.sendText(seller.seller.phoneNumber, `Customer skipped "${item.name}".`, sellerPnId);
-      const packingSlip = buildPackingSlip(item.orderId, seller.items ?? []);
-      await this.sendInteractive(seller.seller.phoneNumber, packingSlip, sellerPnId);
+      await this.sendInlinePackingSlip(seller.seller.phoneNumber, item.orderId, sellerPnId);
     }
   }
 
@@ -1170,6 +1207,33 @@ export class WhatsAppService {
     await this.sendText(sellerPhone, `Order finalized! Total: ₹${total}. Customer notified for pickup.`, sellerPnId);
 
     await this.ordersService.transitionStatus(orderId, 'COMPLETED');
+  }
+
+  // ── Inline packing slip sender ────────────────────────────────────
+
+  /**
+   * Sends the packing slip as inline per-item button messages.
+   * Each pending item gets its own message with Found/Not Found/Edit buttons.
+   */
+  private async sendInlinePackingSlip(sellerPhone: string, orderId: string, phoneNumberId?: string) {
+    const order = await this.prisma.order.findUnique({
+      where: { id: orderId },
+      include: { items: true },
+    });
+    if (!order) return;
+
+    const packing = buildInlinePacking(orderId, order.items ?? []);
+
+    // Send header text
+    await this.sendText(sellerPhone, packing.header, phoneNumberId);
+
+    // Send per-item button messages (each with Found/Not Found/Edit)
+    for (const im of packing.itemMessages) {
+      await this.sendInteractive(sellerPhone, im.message, phoneNumberId);
+    }
+
+    // Send finalize button
+    await this.sendInteractive(sellerPhone, packing.finalizeMessage, phoneNumberId);
   }
 
   // ── WhatsApp Cloud API send methods ───────────────────────────────
