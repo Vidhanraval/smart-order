@@ -16,6 +16,7 @@ import {
   buildPackingSlip,
   buildInlineEditOptions,
   buildPricePicker,
+  buildBuyerQtyPicker,
 } from './interactive-messages';
 import axios from 'axios';
 
@@ -282,7 +283,7 @@ export class WhatsAppService {
       await this.sendText(from, `✅ Renamed to: ${name}`, phoneNumberId);
 
       if (item) {
-        await this.sendInlinePackingSlip(from, item.orderId, phoneNumberId);
+        await this.resendAfterEdit(from, item.orderId, phoneNumberId);
       }
       return true;
     }
@@ -369,7 +370,7 @@ export class WhatsAppService {
         include: { order: { include: { items: true } } },
       });
       if (item) {
-        await this.sendInlinePackingSlip(from, item.orderId, phoneNumberId);
+        await this.resendAfterEdit(from, item.orderId, phoneNumberId);
       }
 
       return true;
@@ -419,7 +420,7 @@ export class WhatsAppService {
         });
         await this.sendText(from, `📝 Name unchanged. ✅ Edit complete!`, phoneNumberId);
         if (item) {
-          await this.sendInlinePackingSlip(from, item.orderId, phoneNumberId);
+          await this.resendAfterEdit(from, item.orderId, phoneNumberId);
         }
         return true;
       }
@@ -437,7 +438,7 @@ export class WhatsAppService {
       await this.sendText(from, `📝 Renamed to: *${name}*\n✅ Edit complete!`, phoneNumberId);
 
       if (item) {
-        await this.sendInlinePackingSlip(from, item.orderId, phoneNumberId);
+        await this.resendAfterEdit(from, item.orderId, phoneNumberId);
       }
       return true;
     }
@@ -548,8 +549,8 @@ export class WhatsAppService {
 
     await this.sendText(sellerPhone, `✅ ${item.name} — ₹${price}`, phoneNumberId);
 
-    // Resend updated inline packing slip
-    await this.sendInlinePackingSlip(sellerPhone, item.orderId, phoneNumberId);
+    // Resend correct view (buyer → order review, seller → packing slip)
+    await this.resendAfterEdit(sellerPhone, item.orderId, phoneNumberId);
   }
 
   // ── Greeting detection ──────────────────────────────────────────
@@ -809,17 +810,36 @@ export class WhatsAppService {
         return;
       }
 
-      // qty_<itemId> — Buyer wants to change quantity
+      // qty_<itemId> — Buyer wants to change quantity → show 1-10 picker
       if (replyId.startsWith('qty_')) {
         const itemId = replyId.replace('qty_', '');
         const item = await this.prisma.orderItem.findUnique({ where: { id: itemId } });
         if (item) {
-          await this.sendText(
-            from,
-            `🔢 *${item.name}*\nCurrent qty: ${item.quantity} ${item.unit}\n\nReply with new quantity:`,
-            phoneNumberId,
-          );
-          this.pendingActions.set(from, { action: 'buyer_qty', itemId });
+          const picker = buildBuyerQtyPicker(item);
+          await this.sendInteractive(from, picker, phoneNumberId);
+        }
+        return;
+      }
+
+      // buyerqty_<itemId>_<qty> — Buyer picked a quantity from the picker
+      if (replyId.startsWith('buyerqty_')) {
+        const parts = replyId.split('_');
+        const qty = parseInt(parts.pop()!, 10);
+        const itemId = parts.slice(1).join('_');
+        if (!isNaN(qty) && qty > 0) {
+          await this.prisma.orderItem.update({
+            where: { id: itemId },
+            data: { quantity: qty },
+          });
+          const item = await this.prisma.orderItem.findUnique({
+            where: { id: itemId },
+            include: { order: { include: { items: true } } },
+          });
+          if (item) {
+            await this.sendText(from, `🔢 Quantity updated to *${qty}* ✅`, phoneNumberId);
+            const reviewList = buildOrderReviewList(item.orderId, item.order.items ?? []);
+            await this.sendInteractive(from, reviewList, phoneNumberId);
+          }
         }
         return;
       }
@@ -853,16 +873,14 @@ export class WhatsAppService {
         return;
       }
 
-      // editdetail_<itemId> — Buyer wants to edit item details
+      // editdetail_<itemId> — Buyer wants to edit item → show list like seller
       if (replyId.startsWith('editdetail_')) {
         const itemId = replyId.replace('editdetail_', '');
         const item = await this.prisma.orderItem.findUnique({ where: { id: itemId } });
-        await this.sendText(
-          from,
-          `✏️ Editing: ${item?.name ?? 'item'}\n\nReply with:\nName, Quantity, Unit, Price\n\nExample: "Atta, 5, kg, 300"`,
-          phoneNumberId,
-        );
-        this.pendingActions.set(from, { action: 'edit', itemId });
+        if (item) {
+          const editList = buildInlineEditOptions(item);
+          await this.sendInteractive(from, editList, phoneNumberId);
+        }
         return;
       }
 
@@ -1112,6 +1130,25 @@ export class WhatsAppService {
     // First tap: show normal prompt
     const prompt = buildPackItemPrompt(item);
     await this.sendInteractive(sellerPhone, prompt, phoneNumberId);
+  }
+
+  // ── Resend helper — buyer gets order review, seller gets packing slip ─
+
+  /** After an edit, resend the right message: order review for buyers, packing slip for sellers */
+  private async resendAfterEdit(from: string, orderId: string, phoneNumberId?: string) {
+    const seller = await this.prisma.seller.findUnique({ where: { phoneNumber: from } });
+    if (seller) {
+      await this.sendInlinePackingSlip(from, orderId, phoneNumberId);
+    } else {
+      const order = await this.prisma.order.findUnique({
+        where: { id: orderId },
+        include: { items: true },
+      });
+      if (order) {
+        const reviewList = buildOrderReviewList(orderId, order.items ?? []);
+        await this.sendInteractive(from, reviewList, phoneNumberId);
+      }
+    }
   }
 
   // ── Inline editor (button-driven via Edit button) ─────────────────

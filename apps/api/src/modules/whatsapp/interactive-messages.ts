@@ -388,6 +388,35 @@ export function buildPricePicker(item: OrderItem): WhatsAppInteractiveList {
   };
 }
 
+// ── Buyer quantity picker (list 1–10) ──────────────────────────────
+
+export function buildBuyerQtyPicker(item: OrderItem): WhatsAppInteractiveList {
+  const currentQty = item.quantity;
+  const qtys = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+
+  return {
+    type: 'list',
+    header: { type: 'text', text: `🔢 Qty: ${item.name}` },
+    body: {
+      text: `Current: ${currentQty} ${item.unit ?? 'pcs'}\nPick a new quantity:`,
+    },
+    footer: { text: 'SmartOrder' },
+    action: {
+      button: 'Select Qty',
+      sections: [
+        {
+          title: 'Quantity',
+          rows: qtys.map((q) => ({
+            id: `buyerqty_${item.id}_${q}`,
+            title: `${q} ${item.unit ?? 'pcs'}`,
+            description: q === currentQty ? '← current' : `Set quantity to ${q}`,
+          })),
+        },
+      ],
+    },
+  };
+}
+
 // ── Pickup ready receipt ───────────────────────────────────────────
 
 export function buildPickupReady(storeName: string, total: number, items: OrderItem[]): string {
