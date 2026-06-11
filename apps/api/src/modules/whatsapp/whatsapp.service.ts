@@ -14,6 +14,7 @@ import {
   buildOrderItemOptions,
   buildDeleteConfirm,
   buildPackingSlip,
+  buildInlinePacking,
   buildInlineEditOptions,
   buildPricePicker,
   buildBuyerQtyPicker,
@@ -1395,8 +1396,19 @@ export class WhatsAppService {
     });
     if (!order) return;
 
-    const packingSlip = buildPackingSlip(orderId, order.items ?? []);
-    await this.sendInteractive(sellerPhone, packingSlip, phoneNumberId);
+    const packing = buildInlinePacking(orderId, order.items ?? []);
+
+    // 1. Header text — summary of found/missing/pending items
+    await this.sendText(sellerPhone, packing.header, phoneNumberId);
+
+    // 2. Per-item button messages — Found / Not Found / Edit directly visible
+    for (const im of packing.itemMessages) {
+      await this.sendInteractive(sellerPhone, im.message, phoneNumberId);
+    }
+
+    // 3. List message with Send Approval + Finalize actions
+    const actionList = buildPackingSlip(orderId, order.items ?? []);
+    await this.sendInteractive(sellerPhone, actionList, phoneNumberId);
   }
 
   // ── WhatsApp Cloud API send methods ───────────────────────────────
