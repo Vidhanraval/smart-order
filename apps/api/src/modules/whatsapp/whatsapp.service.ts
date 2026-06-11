@@ -17,7 +17,6 @@ import {
   buildInlineEditOptions,
   buildPricePicker,
   buildBuyerQtyPicker,
-  buildPriceApprovalForBuyer,
 } from './interactive-messages';
 import axios from 'axios';
 
@@ -1029,58 +1028,6 @@ export class WhatsAppService {
         return;
       }
 
-      // sendapproval_<orderId> — Seller sends prices to buyer for confirmation
-      if (replyId.startsWith('sendapproval_')) {
-        const orderId = replyId.replace('sendapproval_', '');
-        const order = await this.prisma.order.findUnique({
-          where: { id: orderId },
-          include: { items: true, customer: true },
-        });
-        if (order) {
-          const priceReview = buildPriceApprovalForBuyer(orderId, order.items ?? []);
-          await this.sendInteractive(order.customer.phoneNumber, priceReview, phoneNumberId);
-          await this.sendText(from, '💸 Price list sent to buyer for approval!', phoneNumberId);
-        }
-        return;
-      }
-
-      // acceptprices_<orderId> — Buyer accepts prices → start packing
-      if (replyId.startsWith('acceptprices_')) {
-        const orderId = replyId.replace('acceptprices_', '');
-        const order = await this.prisma.order.findUnique({
-          where: { id: orderId },
-          include: { seller: true, customer: true },
-        });
-        if (order) {
-          await this.ordersService.transitionStatus(orderId, 'PACKING');
-          const sellerPnId = order.seller.phoneNumberId ?? phoneNumberId;
-          await this.sendText(from, '✅ Prices accepted! The shop will now pack your order.', sellerPnId);
-          await this.sendText(order.seller.phoneNumber, `✅ ${order.customer.name ?? 'Buyer'} accepted the prices!\n\nStart packing now:`, sellerPnId);
-          await this.sendInlinePackingSlip(order.seller.phoneNumber, orderId, sellerPnId);
-        }
-        return;
-      }
-
-      // rejectprices_<orderId> — Buyer requests price changes
-      if (replyId.startsWith('rejectprices_')) {
-        const orderId = replyId.replace('rejectprices_', '');
-        const order = await this.prisma.order.findUnique({
-          where: { id: orderId },
-          include: { seller: true, customer: true },
-        });
-        if (order) {
-          const sellerPnId = order.seller.phoneNumberId ?? phoneNumberId;
-          await this.sendText(from, '📝 Request sent! The seller will adjust the prices.', sellerPnId);
-          await this.sendText(
-            order.seller.phoneNumber,
-            `✏️ ${order.customer.name ?? 'Buyer'} requested price changes.\n\nPlease review and re-send for approval.`,
-            sellerPnId,
-          );
-          await this.sendInlinePackingSlip(order.seller.phoneNumber, orderId, sellerPnId);
-        }
-        return;
-      }
-
       // finalize_<orderId> — Seller finished packing
       if (replyId.startsWith('finalize_')) {
         const orderId = replyId.replace('finalize_', '');
@@ -1136,7 +1083,7 @@ export class WhatsAppService {
     // Fire buyer + seller notifications in parallel — seller gets instant alert
     const buyerMsg = this.sendText(
       order.customer.phoneNumber,
-      `✅ Order confirmed! The shop will review and set prices.\n\nYou'll receive a price confirmation shortly.`,
+      `✅ Order confirmed! Your order has been sent to the shop.\n\nWe'll notify you once packing begins.`,
       sellerPhoneNumberId,
     );
 
@@ -1150,8 +1097,8 @@ export class WhatsAppService {
 
     await Promise.all([buyerMsg, sellerMsg]);
 
-    // Send packing slip so seller can set prices & send for approval.
-    // PACKING transition happens after buyer accepts the prices.
+    // Start packing and send inline packing slip (per-item buttons)
+    await this.ordersService.transitionStatus(orderId, 'PACKING');
     await this.sendInlinePackingSlip(order.seller.phoneNumber, orderId, sellerPhoneNumberId);
   }
 

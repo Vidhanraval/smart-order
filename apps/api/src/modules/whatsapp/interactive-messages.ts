@@ -33,12 +33,11 @@ interface WhatsAppInteractiveButtons {
 
 // ── Shared item list formatter ─────────────────────────────────────
 
-function formatItemLine(item: OrderItem, index: number, showStatus = false, showPrice = true): string {
+function formatItemLine(item: OrderItem, index: number, showStatus = false): string {
   const qty = item.quantity > 1 ? `${item.quantity}x ` : '';
   const price = item.estimatedPrice != null ? `₹${item.estimatedPrice}` : '—';
 
-  let line = `${index}. ${qty}${item.name} — ${item.unit ?? 'pcs'}`;
-  if (showPrice) line += ` @ ${price}`;
+  let line = `${index}. ${qty}${item.name} — ${item.unit ?? 'pcs'} @ ${price}`;
 
   if (showStatus) {
     if (item.status === 'FOUND' || item.status === 'REPLACEMENT_ACCEPTED') {
@@ -47,7 +46,7 @@ function formatItemLine(item: OrderItem, index: number, showStatus = false, show
       line += ' ❌';
       if (item.replacementName) {
         line += `\n   ⚠ Not available → ${item.replacementName}`;
-        if (item.replacementPrice != null && showPrice) {
+        if (item.replacementPrice != null) {
           line += ` @ ₹${item.replacementPrice}`;
         }
       }
@@ -59,8 +58,8 @@ function formatItemLine(item: OrderItem, index: number, showStatus = false, show
   return line;
 }
 
-function formatItemsList(items: OrderItem[], showStatus = false, showPrice = true): string {
-  return items.map((item, i) => formatItemLine(item, i + 1, showStatus, showPrice)).join('\n');
+function formatItemsList(items: OrderItem[], showStatus = false): string {
+  return items.map((item, i) => formatItemLine(item, i + 1, showStatus)).join('\n');
 }
 
 // ── Order review (after AI parse) ──────────────────────────────────
@@ -70,7 +69,7 @@ export function buildOrderReviewList(orderId: string, items: OrderItem[]): Whats
     type: 'list',
     header: { type: 'text', text: 'Your Order' },
     body: {
-      text: `Here's what we parsed:\n\n${formatItemsList(items, false, false)}\n\nTap an item to edit or confirm:`,
+      text: `Here's what we parsed:\n\n${formatItemsList(items)}\n\nTap an item to edit or confirm:`,
     },
     footer: { text: 'SmartOrder — Your Local Shop' },
     action: {
@@ -82,12 +81,12 @@ export function buildOrderReviewList(orderId: string, items: OrderItem[]): Whats
             ...items.map((item) => ({
               id: `edit_${item.id}`,
               title: item.name,
-              description: `${item.quantity} ${item.unit}`,
+              description: `${item.quantity} ${item.unit} — ₹${item.estimatedPrice ?? '?'}`,
             })),
             {
               id: `confirm_${orderId}`,
               title: '✅ Confirm Order',
-              description: 'Send to shop for pricing',
+              description: 'Submit your order to the shop',
             },
           ],
         },
@@ -103,7 +102,7 @@ export function buildOrderItemOptions(item: OrderItem): WhatsAppInteractiveButto
     type: 'button',
     header: { type: 'text', text: item.name },
     body: {
-      text: `${item.quantity} ${item.unit}`,
+      text: `${item.quantity} ${item.unit} — ₹${item.estimatedPrice ?? '?'}`,
     },
     action: {
       buttons: [
@@ -122,7 +121,7 @@ export function buildDeleteConfirm(item: OrderItem): WhatsAppInteractiveButtons 
     type: 'button',
     header: { type: 'text', text: `🗑 Delete?` },
     body: {
-      text: `${item.quantity}x ${item.name}\n\nAre you sure you want to remove this item?`,
+      text: `${item.quantity}x ${item.name} — ₹${item.estimatedPrice ?? '?'}\n\nAre you sure you want to remove this item?`,
     },
     action: {
       buttons: [
@@ -152,7 +151,7 @@ export function buildReplacementReview(
     type: 'list',
     header: { type: 'text', text: 'Review & Finalize' },
     body: {
-      text: `The seller has reviewed your order:\n\n${formatItemsList(displayItems, true, false)}\n\nAccept the replacement or skip this item.`,
+      text: `The seller has reviewed your order:\n\n${formatItemsList(displayItems, true)}\n\nAccept the replacement or skip this item.`,
     },
     footer: { text: 'SmartOrder — Your Local Shop' },
     action: {
@@ -206,12 +205,6 @@ export function buildPackingSlip(orderId: string, items: OrderItem[]): WhatsAppI
     title: item.name,
     description: `${item.quantity} ${item.unit} — ₹${item.estimatedPrice ?? '?'}`,
   }));
-  // "Send Prices for Approval" — sends price list to buyer for confirmation
-  rows.push({
-    id: `sendapproval_${orderId}`,
-    title: '💸 Send Prices for Approval',
-    description: 'Buyer will confirm pricing before packing',
-  });
   rows.push({
     id: `finalize_${orderId}`,
     title: '📦 Finish Packing',
@@ -418,41 +411,6 @@ export function buildBuyerQtyPicker(item: OrderItem): WhatsAppInteractiveList {
             title: `${q} ${item.unit ?? 'pcs'}`,
             description: q === currentQty ? '← current' : `Set quantity to ${q}`,
           })),
-        },
-      ],
-    },
-  };
-}
-
-// ── Buyer price approval (seller sends after setting prices) ────────
-
-export function buildPriceApprovalForBuyer(orderId: string, items: OrderItem[]): WhatsAppInteractiveList {
-  const total = items.reduce((sum, i) => sum + (i.estimatedPrice ?? 0) * i.quantity, 0);
-
-  return {
-    type: 'list',
-    header: { type: 'text', text: '💰 Price Confirmation' },
-    body: {
-      text: `The shop has set prices for your order:\n\n${formatItemsList(items)}\n\n💰 *Total: ₹${total}*\n\nPlease confirm or request changes.`,
-    },
-    footer: { text: 'SmartOrder' },
-    action: {
-      button: 'Review Prices',
-      sections: [
-        {
-          title: 'Actions',
-          rows: [
-            {
-              id: `acceptprices_${orderId}`,
-              title: '✅ Accept Prices',
-              description: `Total: ₹${total} — confirm & start packing`,
-            },
-            {
-              id: `rejectprices_${orderId}`,
-              title: '✏️ Request Changes',
-              description: 'Ask seller to adjust prices',
-            },
-          ],
         },
       ],
     },
