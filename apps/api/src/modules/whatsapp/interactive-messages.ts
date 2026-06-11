@@ -18,7 +18,7 @@ interface WhatsAppInteractiveList {
   };
 }
 
-interface WhatsAppInteractiveButtons {
+export interface WhatsAppInteractiveButtons {
   type: 'button';
   header?: { type: 'text'; text: string };
   body: { text: string };
