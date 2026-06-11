@@ -314,20 +314,39 @@ export function buildInlinePacking(orderId: string, items: OrderItem[]): InlineP
   return { header, itemMessages, finalizeMessage, hasPending: pendingItems.length > 0 };
 }
 
-// ── Inline seller edit (button-driven price/rename) ─────────────────
+// ── Inline seller edit (list with 4 options: Price, Rename, Both, Done) ──
 
-export function buildInlineEditOptions(item: OrderItem): WhatsAppInteractiveButtons {
+export function buildInlineEditOptions(item: OrderItem): WhatsAppInteractiveList {
   return {
-    type: 'button',
+    type: 'list',
     header: { type: 'text', text: `✏️ Edit: ${item.name}` },
     body: {
-      text: `${item.quantity} ${item.unit} — ₹${item.estimatedPrice ?? '?'}`,
+      text: `${item.quantity} ${item.unit} — ₹${item.estimatedPrice ?? '?'}\n\nChoose an option:`,
     },
+    footer: { text: 'SmartOrder' },
     action: {
-      buttons: [
-        { type: 'reply', reply: { id: `setprice_${item.id}`, title: '💰 Price' } },
-        { type: 'reply', reply: { id: `setname_${item.id}`, title: '📝 Rename' } },
-        { type: 'reply', reply: { id: `editdone_${item.id}`, title: '✅ Done' } },
+      button: 'Edit Options',
+      sections: [
+        {
+          title: 'Edit Item',
+          rows: [
+            {
+              id: `setprice_${item.id}`,
+              title: '💰 Change Price',
+              description: `Current: ₹${item.estimatedPrice ?? '?'}`,
+            },
+            {
+              id: `setname_${item.id}`,
+              title: '📝 Rename',
+              description: `Current: ${item.name}`,
+            },
+            {
+              id: `both_${item.id}`,
+              title: '✏️ Both (Price + Name)',
+              description: 'Edit both together in one reply',
+            },
+          ],
+        },
       ],
     },
   };

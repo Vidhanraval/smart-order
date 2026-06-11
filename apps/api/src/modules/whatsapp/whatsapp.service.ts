@@ -959,6 +959,21 @@ export class WhatsAppService {
         return;
       }
 
+      // both_<itemId> — Seller wants to edit both price & name together
+      if (replyId.startsWith('both_')) {
+        const itemId = replyId.replace('both_', '');
+        const item = await this.prisma.orderItem.findUnique({ where: { id: itemId } });
+        if (item) {
+          await this.sendText(
+            from,
+            `✏️ Edit both: *${item.name}*\nCurrent: ₹${item.estimatedPrice ?? '?'}\n\nReply with:\nPrice, Name\n\nExample: "60, New Name"\nOr just "60" for price only.`,
+            phoneNumberId,
+          );
+          this.pendingActions.set(from, { action: 'seller_edit', itemId });
+        }
+        return;
+      }
+
       // editdone_<itemId> — Seller finished editing → resend packing slip
       if (replyId.startsWith('editdone_')) {
         const itemId = replyId.replace('editdone_', '');
