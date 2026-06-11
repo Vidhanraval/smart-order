@@ -17,6 +17,7 @@ import {
   buildInlineEditOptions,
   buildPricePicker,
   buildBuyerQtyPicker,
+  buildPriceConfirmation,
 } from './interactive-messages';
 import axios from 'axios';
 
@@ -227,7 +228,8 @@ export class WhatsAppService {
       });
 
       if (item) {
-        const reviewList = buildOrderReviewList(item.orderId, item.order.items ?? []);
+        const showPrice = item.order.status !== 'PENDING';
+        const reviewList = buildOrderReviewList(item.orderId, item.order.items ?? [], showPrice);
         await this.sendInteractive(from, reviewList, phoneNumberId);
       }
 
@@ -256,7 +258,8 @@ export class WhatsAppService {
 
       if (item) {
         await this.sendText(from, `🔢 Quantity updated to *${qty}* ✅`, phoneNumberId);
-        const reviewList = buildOrderReviewList(item.orderId, item.order.items ?? []);
+        const showPrice = item.order.status !== 'PENDING';
+        const reviewList = buildOrderReviewList(item.orderId, item.order.items ?? [], showPrice);
         await this.sendInteractive(from, reviewList, phoneNumberId);
       }
       return true;
@@ -783,7 +786,7 @@ export class WhatsAppService {
       originalInput ?? undefined,
     );
 
-    const reviewList = buildOrderReviewList(order.id, order.items ?? []);
+    const reviewList = buildOrderReviewList(order.id, order.items ?? [], false); // Phase 1: no prices
     await this.sendInteractive(from, reviewList, resolvedPhoneNumberId);
   }
 
@@ -802,9 +805,13 @@ export class WhatsAppService {
       // edit_<itemId> — Buyer tapped an item → show options sub-menu
       if (replyId.startsWith('edit_')) {
         const itemId = replyId.replace('edit_', '');
-        const item = await this.prisma.orderItem.findUnique({ where: { id: itemId } });
+        const item = await this.prisma.orderItem.findUnique({
+          where: { id: itemId },
+          include: { order: true },
+        });
         if (item) {
-          const menu = buildOrderItemOptions(item);
+          const showPrice = item.order.status !== 'PENDING';
+          const menu = buildOrderItemOptions(item, showPrice);
           await this.sendInteractive(from, menu, phoneNumberId);
         }
         return;
@@ -837,7 +844,8 @@ export class WhatsAppService {
           });
           if (item) {
             await this.sendText(from, `🔢 Quantity updated to *${qty}* ✅`, phoneNumberId);
-            const reviewList = buildOrderReviewList(item.orderId, item.order.items ?? []);
+            const showPrice = item.order.status !== 'PENDING';
+            const reviewList = buildOrderReviewList(item.orderId, item.order.items ?? [], showPrice);
             await this.sendInteractive(from, reviewList, phoneNumberId);
           }
         }
@@ -1028,6 +1036,38 @@ export class WhatsAppService {
         return;
       }
 
+      // sendapproval_<orderId> — Seller sends prices to buyer for confirmation
+      if (replyId.startsWith('sendapproval_')) {
+        const orderId = replyId.replace('sendapproval_', '');
+        const order = await this.prisma.order.findUnique({
+          where: { id: orderId },
+          include: { items: true, customer: true },
+        });
+        if (order) {
+          const priceConfirm = buildPriceConfirmation(orderId, order.items ?? []);
+          await this.sendInteractive(order.customer.phoneNumber, priceConfirm, phoneNumberId);
+          await this.sendText(from, '📤 Prices sent to buyer for confirmation!', phoneNumberId);
+        }
+        return;
+      }
+
+      // confirmprices_<orderId> — Buyer accepts prices → start packing
+      if (replyId.startsWith('confirmprices_')) {
+        const orderId = replyId.replace('confirmprices_', '');
+        const order = await this.prisma.order.findUnique({
+          where: { id: orderId },
+          include: { seller: true, customer: true },
+        });
+        if (order) {
+          await this.ordersService.transitionStatus(orderId, 'PACKING');
+          const sellerPnId = order.seller.phoneNumberId ?? phoneNumberId;
+          await this.sendText(from, '✅ Prices confirmed! The shop will now pack your order.', sellerPnId);
+          await this.sendText(order.seller.phoneNumber, `✅ ${order.customer.name ?? 'Buyer'} confirmed prices!\n\nPack & finalize:`, sellerPnId);
+          await this.sendInlinePackingSlip(order.seller.phoneNumber, orderId, sellerPnId);
+        }
+        return;
+      }
+
       // finalize_<orderId> — Seller finished packing
       if (replyId.startsWith('finalize_')) {
         const orderId = replyId.replace('finalize_', '');
@@ -1083,7 +1123,7 @@ export class WhatsAppService {
     // Fire buyer + seller notifications in parallel — seller gets instant alert
     const buyerMsg = this.sendText(
       order.customer.phoneNumber,
-      `✅ Order confirmed! Your order has been sent to the shop.\n\nWe'll notify you once packing begins.`,
+      `✅ Order sent! The shop will review and set prices.\n\nYou'll receive a price confirmation shortly.`,
       sellerPhoneNumberId,
     );
 
@@ -1097,8 +1137,8 @@ export class WhatsAppService {
 
     await Promise.all([buyerMsg, sellerMsg]);
 
-    // Start packing and send inline packing slip (per-item buttons)
-    await this.ordersService.transitionStatus(orderId, 'PACKING');
+    // Send packing slip so seller can set prices first.
+    // PACKING starts after buyer confirms the prices.
     await this.sendInlinePackingSlip(order.seller.phoneNumber, orderId, sellerPhoneNumberId);
   }
 
@@ -1145,7 +1185,8 @@ export class WhatsAppService {
         include: { items: true },
       });
       if (order) {
-        const reviewList = buildOrderReviewList(orderId, order.items ?? []);
+        const showPrice = order.status !== 'PENDING';
+        const reviewList = buildOrderReviewList(orderId, order.items ?? [], showPrice);
         await this.sendInteractive(from, reviewList, phoneNumberId);
       }
     }
@@ -1202,7 +1243,8 @@ export class WhatsAppService {
         this.logger.warn(`Could not delete empty order ${orderId}`);
       }
     } else {
-      const reviewList = buildOrderReviewList(orderId, remaining);
+      const showPrice = item.order.status !== 'PENDING';
+      const reviewList = buildOrderReviewList(orderId, remaining, showPrice);
       await this.sendInteractive(buyerPhone, reviewList, phoneNumberId);
     }
   }
