@@ -13,7 +13,7 @@ import {
   buildPickupReady,
   buildOrderItemOptions,
   buildDeleteConfirm,
-  buildActionPackingSlip,
+  buildInlinePacking,
   buildInlineEditOptions,
   buildPricePicker,
 } from './interactive-messages';
@@ -1290,9 +1290,8 @@ export class WhatsAppService {
   // ── Inline packing slip sender ────────────────────────────────────
 
   /**
-   * Sends the packing slip as a SINGLE list with action-based sections.
-   * All items in one box — sections: Found, Not Found, Edit.
-   * Direct 1-tap action, no sub-menu.
+   * Sends the packing slip as inline per-item button messages.
+   * Each pending item gets its own message with Found/Not Found/Edit buttons.
    */
   private async sendInlinePackingSlip(sellerPhone: string, orderId: string, phoneNumberId?: string) {
     const order = await this.prisma.order.findUnique({
@@ -1301,17 +1300,17 @@ export class WhatsAppService {
     });
     if (!order) return;
 
-    const packing = buildActionPackingSlip(orderId, order.items ?? []);
+    const packing = buildInlinePacking(orderId, order.items ?? []);
 
-    // Send the single list message (all items inside, action-based sections)
-    await this.sendInteractive(sellerPhone, packing.listMessage, phoneNumberId);
+    // Send header text
+    await this.sendText(sellerPhone, packing.header, phoneNumberId);
 
-    // Send text command hint if items couldn't fit all sections
-    if (packing.commandHint) {
-      await this.sendText(sellerPhone, packing.commandHint, phoneNumberId);
+    // Send per-item button messages (each with Found/Not Found/Edit)
+    for (const im of packing.itemMessages) {
+      await this.sendInteractive(sellerPhone, im.message, phoneNumberId);
     }
 
-    // Always send the finalize button
+    // Send finalize button
     await this.sendInteractive(sellerPhone, packing.finalizeMessage, phoneNumberId);
   }
 
