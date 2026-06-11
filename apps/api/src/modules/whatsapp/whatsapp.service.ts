@@ -18,7 +18,6 @@ import {
   buildPricePicker,
   buildBuyerQtyPicker,
   buildPriceConfirmation,
-  WhatsAppInteractiveButtons,
 } from './interactive-messages';
 import axios from 'axios';
 
@@ -1396,74 +1395,8 @@ export class WhatsAppService {
     });
     if (!order) return;
 
-    const items = order.items ?? [];
-
-    // Separate by status
-    const pendingItems = items.filter(
-      (i) => i.status === 'PENDING' || i.status === 'REPLACEMENT_ACCEPTED',
-    );
-    const foundItems = items.filter((i) => i.status === 'FOUND');
-    const notFoundItems = items.filter(
-      (i) => i.status === 'NOT_FOUND' || i.status === 'REPLACEMENT_SUGGESTED',
-    );
-
-    // --- 1. Text summary ---
-    let header = '🛒 *Packing Slip*\n\n';
-    if (foundItems.length > 0) {
-      header += `✅ Found (${foundItems.length}): ${foundItems.map((i) => i.name).join(', ')}\n`;
-    }
-    if (notFoundItems.length > 0) {
-      header += `❌ Missing (${notFoundItems.length}):\n`;
-      for (const i of notFoundItems) {
-        header += `   ${i.name}`;
-        if (i.replacementName) header += ` → ${i.replacementName}`;
-        header += '\n';
-      }
-    }
-    if (pendingItems.length > 0) {
-      header += `\n📋 *Pending (${pendingItems.length})* — tap buttons below:\n`;
-    } else {
-      header += '\n✅ All items handled!';
-    }
-    await this.sendText(sellerPhone, header, phoneNumberId);
-
-    // --- 2. Per-item buttons — Found / Not Found / Edit ---
-    for (const item of pendingItems) {
-      const btnMsg: WhatsAppInteractiveButtons = {
-        type: 'button',
-        header: { type: 'text', text: item.name },
-        body: {
-          text: `${item.quantity} ${item.unit ?? 'pcs'} — ₹${item.estimatedPrice ?? '?'}`,
-        },
-        action: {
-          buttons: [
-            { type: 'reply', reply: { id: `found_${item.id}`, title: '✅ Found' } },
-            { type: 'reply', reply: { id: `notfound_${item.id}`, title: '❌ NF' } },
-            { type: 'reply', reply: { id: `edititem_${item.id}`, title: '✏️ Edit' } },
-          ],
-        },
-      };
-      await this.sendInteractive(sellerPhone, btnMsg, phoneNumberId);
-    }
-
-    // --- 3. Action buttons ---
-    const actionBtns: Array<{ type: 'reply'; reply: { id: string; title: string } }> = [];
-    actionBtns.push({ type: 'reply', reply: { id: `sendapproval_${orderId}`, title: '📤 Send for Approval' } });
-    if (pendingItems.length > 0) {
-      actionBtns.push({ type: 'reply', reply: { id: `finalize_${orderId}`, title: '📦 Finalize' } });
-    }
-
-    const actionMsg: WhatsAppInteractiveButtons = {
-      type: 'button',
-      header: { type: 'text', text: '📦 Actions' },
-      body: {
-        text: pendingItems.length > 0
-          ? `${pendingItems.length} pending. Send for approval or finalize.`
-          : 'All items handled! Finalize the order.',
-      },
-      action: { buttons: actionBtns.slice(0, 3) },
-    };
-    await this.sendInteractive(sellerPhone, actionMsg, phoneNumberId);
+    const packingSlip = buildPackingSlip(orderId, order.items ?? []);
+    await this.sendInteractive(sellerPhone, packingSlip, phoneNumberId);
   }
 
   // ── WhatsApp Cloud API send methods ───────────────────────────────
