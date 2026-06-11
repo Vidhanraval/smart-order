@@ -13,7 +13,7 @@ import {
   buildPickupReady,
   buildOrderItemOptions,
   buildDeleteConfirm,
-  buildInlinePacking,
+  buildPackingSlip,
   buildInlineEditOptions,
   buildPricePicker,
 } from './interactive-messages';
@@ -1287,11 +1287,12 @@ export class WhatsAppService {
     await this.ordersService.transitionStatus(orderId, 'COMPLETED');
   }
 
-  // ── Inline packing slip sender ────────────────────────────────────
+  // ── Packing slip sender ──────────────────────────────────────────
 
   /**
-   * Sends the packing slip as inline per-item button messages.
-   * Each pending item gets its own message with Found/Not Found/Edit buttons.
+   * Sends a single list-message packing slip.
+   * Seller taps an item row → Found/Not Found/Edit sub-menu opens.
+   * Finalize is a row in the same list.
    */
   private async sendInlinePackingSlip(sellerPhone: string, orderId: string, phoneNumberId?: string) {
     const order = await this.prisma.order.findUnique({
@@ -1300,18 +1301,8 @@ export class WhatsAppService {
     });
     if (!order) return;
 
-    const packing = buildInlinePacking(orderId, order.items ?? []);
-
-    // Send header text
-    await this.sendText(sellerPhone, packing.header, phoneNumberId);
-
-    // Send per-item button messages (each with Found/Not Found/Edit)
-    for (const im of packing.itemMessages) {
-      await this.sendInteractive(sellerPhone, im.message, phoneNumberId);
-    }
-
-    // Send finalize button
-    await this.sendInteractive(sellerPhone, packing.finalizeMessage, phoneNumberId);
+    const packingSlip = buildPackingSlip(orderId, order.items ?? []);
+    await this.sendInteractive(sellerPhone, packingSlip, phoneNumberId);
   }
 
   // ── WhatsApp Cloud API send methods ───────────────────────────────
