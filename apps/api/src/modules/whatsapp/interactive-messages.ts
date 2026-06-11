@@ -211,11 +211,6 @@ export function buildPackingSlip(orderId: string, items: OrderItem[]): WhatsAppI
     description: `${item.quantity} ${item.unit} — ₹${item.estimatedPrice ?? '?'}`,
   }));
   rows.push({
-    id: `sendapproval_${orderId}`,
-    title: '📤 Send Prices for Approval',
-    description: 'Buyer will confirm prices before packing',
-  });
-  rows.push({
     id: `finalize_${orderId}`,
     title: '📦 Finish Packing',
     description: 'All done — notify buyer',

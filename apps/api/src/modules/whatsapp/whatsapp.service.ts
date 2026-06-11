@@ -18,6 +18,7 @@ import {
   buildPricePicker,
   buildBuyerQtyPicker,
   buildPriceConfirmation,
+  WhatsAppInteractiveButtons,
 } from './interactive-messages';
 import axios from 'axios';
 
@@ -1395,8 +1396,23 @@ export class WhatsAppService {
     });
     if (!order) return;
 
+    // 1. Original packing slip (single list message)
     const packingSlip = buildPackingSlip(orderId, order.items ?? []);
     await this.sendInteractive(sellerPhone, packingSlip, phoneNumberId);
+
+    // 2. If order is in pricing phase (SUBMITTED), send approval button separately
+    if (order.status === 'SUBMITTED') {
+      const approvalBtn: WhatsAppInteractiveButtons = {
+        type: 'button',
+        body: { text: 'Set prices for each item using the packing slip above, then send for buyer approval.' },
+        action: {
+          buttons: [
+            { type: 'reply', reply: { id: `sendapproval_${orderId}`, title: '📤 Send for Approval' } },
+          ],
+        },
+      };
+      await this.sendInteractive(sellerPhone, approvalBtn, phoneNumberId);
+    }
   }
 
   // ── WhatsApp Cloud API send methods ───────────────────────────────
