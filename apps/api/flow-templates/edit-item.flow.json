@@ -1,9 +1,7 @@
 {
   "version": "7.3",
   "data_api_version": "3.0",
-  "routing_model": {
-    "endpoint_uri": ["https://smart-order-0cho.onrender.com/flows/data-exchange"]
-  },
+  "routing_model": {},
   "screens": [
     {
       "id": "EDIT_ITEM",
