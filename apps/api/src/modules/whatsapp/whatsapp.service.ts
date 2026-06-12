@@ -6,7 +6,8 @@ import { AiService } from '../ai/ai.service';
 import { OrdersService } from '../orders/orders.service';
 import { CustomersService } from '../customers/customers.service';
 import { SellersService } from '../sellers/sellers.service';
-import { WhatsAppMessage, WhatsAppWebhookPayload } from './dto/whatsapp-webhook.dto';
+import { FlowsService } from '../flows/flows.service';
+import { WhatsAppMessage, WhatsAppWebhookPayload, FlowCompletionPayload } from './dto/whatsapp-webhook.dto';
 import {
   buildOrderReviewList,
   buildPackItemPrompt,
@@ -42,6 +43,7 @@ export class WhatsAppService {
     private readonly ordersService: OrdersService,
     private readonly customersService: CustomersService,
     private readonly sellersService: SellersService,
+    private readonly flowsService: FlowsService,
   ) {}
 
   // ── Webhook verification ─────────────────────────────────────────
@@ -126,6 +128,12 @@ export class WhatsAppService {
       // Check for interactive reply (button or list)
       if (message.type === 'interactive') {
         await this.handleInteractiveReply(from, message, resolvedPhoneNumberId);
+        return;
+      }
+
+      // Check for flow completion (structured form submitted)
+      if (message.type === 'flow' && message.flow) {
+        await this.handleFlowCompletion(from, message.flow, resolvedPhoneNumberId);
         return;
       }
 
@@ -304,7 +312,7 @@ export class WhatsAppService {
 
     if (pending.action === 'seller_edit') {
       // Seller edit: "Price, Name" or "Name, Price" or just "Price"
-      const cleanText = text.replace(/[₹]/g, '').trim();
+      let cleanText = text.replace(/[₹]/g, '').trim();
 
       // Split by common separators
       let parts: string[] = [];
@@ -768,10 +776,18 @@ export class WhatsAppService {
 
   // ── Seller approval/rejection handlers ──────────────────────────
 
+  private normalizePhone(phone: string): string {
+    return phone.replace(/^\+/, '').replace(/\s/g, '');
+  }
+
+  private isAdmin(phone: string): boolean {
+    const configured = this.configService.get<string>('seller.phoneNumber') ?? '';
+    return this.normalizePhone(phone) === this.normalizePhone(configured);
+  }
+
   private async handleApproveSeller(adminPhone: string, sellerId: string, phoneNumberId?: string) {
     // Security: verify the caller is actually the admin
-    const configuredAdminPhone = this.configService.get<string>('seller.phoneNumber') ?? '';
-    if (adminPhone !== configuredAdminPhone) {
+    if (!this.isAdmin(adminPhone)) {
       await this.sendText(adminPhone, '⛔ Unauthorized: Only the admin can approve sellers.', phoneNumberId);
       return;
     }
@@ -813,8 +829,7 @@ export class WhatsAppService {
 
   private async handleRejectSeller(adminPhone: string, sellerId: string, phoneNumberId?: string) {
     // Security: verify the caller is actually the admin
-    const configuredAdminPhone = this.configService.get<string>('seller.phoneNumber') ?? '';
-    if (adminPhone !== configuredAdminPhone) {
+    if (!this.isAdmin(adminPhone)) {
       await this.sendText(adminPhone, '⛔ Unauthorized: Only the admin can reject sellers.', phoneNumberId);
       return;
     }
@@ -1136,6 +1151,30 @@ export class WhatsAppService {
         const itemId = replyId.replace('both_', '');
         const item = await this.prisma.orderItem.findUnique({ where: { id: itemId } });
         if (item) {
+          const flowId = this.configService.get<string>('whatsapp.flowId') ?? '';
+          if (flowId) {
+            const flowToken = this.flowsService.encodeFlowToken({
+              action: 'seller_edit',
+              itemId: item.id,
+              phone: from,
+            });
+            const sent = await this.sendFlow(
+              from,
+              flowId,
+              'Edit Item',
+              `✏️ Edit: ${item.name}`,
+              `Current: ${item.quantity} ${item.unit ?? 'pcs'} — ₹${item.estimatedPrice ?? '?'}`,
+              {
+                item_name: item.name,
+                item_price: item.estimatedPrice?.toString() ?? '',
+                item_quantity: item.quantity.toString(),
+                flow_token: flowToken,
+              },
+              phoneNumberId,
+            );
+            if (sent) return; // Flow sent successfully
+          }
+          // Fallback: no flow configured or flow send failed → text prompt
           await this.sendText(
             from,
             `✏️ Edit both: *${item.name}*\nCurrent: ₹${item.estimatedPrice ?? '?'}\n\nReply with:\nPrice, Name\n\nExample: "60, New Name"\nOr just "60" for price only.`,
@@ -1344,16 +1383,14 @@ export class WhatsAppService {
     }
 
     // Use seller's stored phoneNumberId, fall back to passed param
-    const sellerPhoneNumberId: string = order.seller.phoneNumberId ?? phoneNumberId ?? '';
-    const sellerPhone: string = order.seller.phoneNumber;
-    const customerPhone: string = order.customer.phoneNumber;
+    const sellerPhoneNumberId = order.seller.phoneNumberId ?? phoneNumberId;
 
     // ── Phase 3: SUBMITTED → PACKING (buyer confirming prices) ──
     if (order.status === 'SUBMITTED') {
       await this.ordersService.transitionStatus(orderId, 'PACKING');
       await this.sendText(from, '✅ Prices confirmed! The shop will now pack your order.', sellerPhoneNumberId);
-      await this.sendText(sellerPhone, `✅ ${order.customer.name ?? 'Buyer'} confirmed prices!\n\nPack & finalize:`, sellerPhoneNumberId);
-      await this.sendInlinePackingSlip(sellerPhone, orderId, sellerPhoneNumberId);
+      await this.sendText(order.seller.phoneNumber, `✅ ${order.customer.name ?? 'Buyer'} confirmed prices!\n\nPack & finalize:`, sellerPhoneNumberId);
+      await this.sendInlinePackingSlip(order.seller.phoneNumber, orderId, sellerPhoneNumberId);
       return;
     }
 
@@ -1368,7 +1405,7 @@ export class WhatsAppService {
         this.logger.warn(`Could not mark order ${orderId} as EXPIRED (may already be expired): ${msg}`);
       }
       await this.sendText(
-        customerPhone,
+        order.customer.phoneNumber,
         '⏰ Aapki shopping process ki samay seema samapt ho chuki hai.\nKripya nayi shopping list bhejkar nayi process shuru karein.',
         sellerPhoneNumberId,
       );
@@ -1379,14 +1416,14 @@ export class WhatsAppService {
 
     // Fire buyer + seller notifications in parallel — seller gets instant alert
     const buyerMsg = this.sendText(
-      customerPhone,
+      order.customer.phoneNumber,
       `✅ Order sent! The shop will review and set prices.\n\nYou'll receive a price confirmation shortly.`,
       sellerPhoneNumberId,
     );
 
     const sellerMsg = this.sendText(
-      sellerPhone,
-      `🛒 New Order from ${order.customer.name ?? customerPhone}!\n\n` +
+      order.seller.phoneNumber,
+      `🛒 New Order from ${order.customer.name ?? order.customer.phoneNumber}!\n\n` +
         `Items: ${order.items?.length ?? 0}\n` +
         `Order #${order.id.slice(-6).toUpperCase()}`,
       sellerPhoneNumberId,
@@ -1396,7 +1433,7 @@ export class WhatsAppService {
 
     // Send packing slip so seller can set prices first.
     // PACKING starts after buyer confirms the prices.
-    await this.sendInlinePackingSlip(sellerPhone, orderId, sellerPhoneNumberId);
+    await this.sendInlinePackingSlip(order.seller.phoneNumber, orderId, sellerPhoneNumberId);
   }
 
   private async promptPackItem(sellerPhone: string, itemId: string, phoneNumberId?: string) {
@@ -1458,10 +1495,10 @@ export class WhatsAppService {
 
   private async showInlineEditor(
     sellerPhone: string,
-    item: OrderItem,
+    item: { id: string; name: string; estimatedPrice: number | null },
     phoneNumberId?: string,
   ) {
-    const editOptions = buildInlineEditOptions(item);
+    const editOptions = buildInlineEditOptions(item as any);
     await this.sendInteractive(sellerPhone, editOptions, phoneNumberId);
   }
 
@@ -1480,6 +1517,7 @@ export class WhatsAppService {
 
     const itemName = item.name;
     const orderId = item.orderId;
+    const items = item.order.items ?? [];
 
     // Delete the item
     await this.prisma.orderItem.delete({ where: { id: itemId } });
@@ -1755,12 +1793,136 @@ export class WhatsAppService {
       if (body?.text) {
         try {
           await this.sendText(to, `📋 ${header?.text ?? 'Update'}\n\n${body.text}`, phoneNumberId);
-        } catch {
-          this.logger.warn(`Fallback text send also failed for ${to}`);
-        }
+        } catch {}
       }
 
       return null;
+    }
+  }
+
+  // ── Flow message sender ──────────────────────────────────────────
+
+  async sendFlow(
+    to: string,
+    flowId: string,
+    cta: string,
+    headerText: string,
+    bodyText: string,
+    data: Record<string, unknown>,
+    phoneNumberId?: string,
+  ): Promise<string | null> {
+    try {
+      const resolvedPhoneNumberId = phoneNumberId || this.configService.get<string>('whatsapp.phoneNumberId');
+      const accessToken = this.configService.get<string>('whatsapp.accessToken');
+
+      const { data: response } = await axios.post(
+        `https://graph.facebook.com/v22.0/${resolvedPhoneNumberId}/messages`,
+        {
+          messaging_product: 'whatsapp',
+          recipient_type: 'individual',
+          to,
+          type: 'flow',
+          flow: {
+            id: flowId,
+            cta,
+            header: { type: 'text', text: headerText },
+            body: { text: bodyText },
+            footer: { text: 'SmartOrder' },
+            data,
+          },
+        },
+        { headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' } },
+      );
+
+      const waMessageId = response.messages?.[0]?.id;
+      if (waMessageId && resolvedPhoneNumberId) {
+        await this.prisma.message.create({
+          data: {
+            waMessageId,
+            from: resolvedPhoneNumberId,
+            to,
+            direction: 'OUTBOUND',
+            body: `[FLOW] ${headerText}`,
+          },
+        });
+      }
+
+      return waMessageId ?? null;
+    } catch (error: unknown) {
+      const errMsg = error instanceof Error ? error.message : String(error);
+      const detail = (error as any)?.response?.data ? JSON.stringify((error as any).response.data) : '';
+      this.logger.error(`Failed to send flow to ${to}: ${errMsg} ${detail}`);
+      return null;
+    }
+  }
+
+  // ── Flow completion handler ──────────────────────────────────────
+
+  private async handleFlowCompletion(
+    from: string,
+    flow: FlowCompletionPayload,
+    phoneNumberId?: string,
+  ): Promise<void> {
+    const { token, response } = flow;
+    let ctx: { action: string; itemId: string; phone: string };
+
+    try {
+      ctx = this.flowsService.decodeFlowToken(token);
+    } catch {
+      this.logger.warn(`Flow completion with invalid token from ${from}`);
+      await this.sendText(from, '⚠️ Invalid session. Please try editing again.', phoneNumberId);
+      return;
+    }
+
+    // Verify the phone number matches to prevent cross-user edits
+    if (ctx.phone !== from) {
+      this.logger.warn(`Flow token phone mismatch: expected ${ctx.phone}, got ${from}`);
+      await this.sendText(from, '⚠️ Session mismatch. Please try again.', phoneNumberId);
+      return;
+    }
+
+    const name = (response.item_name ?? '').trim();
+    const priceStr = (response.item_price ?? '').trim();
+    const quantityStr = (response.item_quantity ?? '').trim();
+    const price = priceStr ? parseFloat(priceStr) : NaN;
+    const quantity = quantityStr ? parseInt(quantityStr, 10) : NaN;
+
+    const updateData: Record<string, unknown> = {};
+    if (name) updateData.name = name;
+    if (!isNaN(price) && price > 0) updateData.estimatedPrice = price;
+    if (!isNaN(quantity) && quantity >= 1 && quantity <= 10) updateData.quantity = quantity;
+
+    if (Object.keys(updateData).length === 0) {
+      await this.sendText(from, '⚠️ No changes detected. Nothing was updated.', phoneNumberId);
+      return;
+    }
+
+    try {
+      await this.prisma.orderItem.update({
+        where: { id: ctx.itemId },
+        data: updateData,
+      });
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      this.logger.error(`Flow completion: failed to update item ${ctx.itemId}: ${msg}`);
+      await this.sendText(from, '⚠️ Could not save changes. The item may have been deleted.', phoneNumberId);
+      return;
+    }
+
+    // Build confirmation
+    const changes: string[] = [];
+    if (name) changes.push(`📝 ${name}`);
+    if (!isNaN(price) && price > 0) changes.push(`💰 ₹${price}`);
+    if (!isNaN(quantity) && quantity > 0) changes.push(`🔢 Qty: ${quantity}`);
+    await this.sendText(from, `✅ Updated: ${changes.join(', ')}`, phoneNumberId);
+
+    // Resend correct view (packing slip for seller, order review for buyer)
+    const item = await this.prisma.orderItem.findUnique({
+      where: { id: ctx.itemId },
+      include: { order: { include: { items: true } } },
+    });
+    if (item) {
+      await this.resendAfterEdit(from, item.orderId, phoneNumberId);
     }
   }
 
@@ -1774,7 +1936,7 @@ export class WhatsAppService {
       { headers: { Authorization: `Bearer ${accessToken}` } },
     );
 
-    const mediaUrl: string = urlResponse.data.url;
+    const mediaUrl = urlResponse.data.url;
 
     const mediaResponse = await axios.get(mediaUrl, {
       headers: { Authorization: `Bearer ${accessToken}` },

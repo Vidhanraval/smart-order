@@ -6,6 +6,7 @@ import { AiModule } from './modules/ai/ai.module';
 import { OrdersModule } from './modules/orders/orders.module';
 import { CustomersModule } from './modules/customers/customers.module';
 import { SellersModule } from './modules/sellers/sellers.module';
+import { FlowsModule } from './modules/flows/flows.module';
 import configuration from './config/configuration';
 import { Response } from 'express';
 import { readFileSync } from 'fs';
@@ -35,6 +36,7 @@ class HealthController {
     OrdersModule,
     CustomersModule,
     SellersModule,
+    FlowsModule,
   ],
   controllers: [HealthController],
 })

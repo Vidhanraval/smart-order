@@ -5,6 +5,7 @@ export default () => ({
     accessToken: process.env.WHATSAPP_ACCESS_TOKEN ?? '',
     verifyToken: process.env.WHATSAPP_VERIFY_TOKEN ?? 'smartorder_verify_2025',
     apiVersion: process.env.WHATSAPP_API_VERSION ?? 'v22.0',
+    flowId: process.env.WHATSAPP_FLOW_ID ?? '',
   },
   google: {
     apiKey: process.env.GEMINI_API_KEY ?? '',
