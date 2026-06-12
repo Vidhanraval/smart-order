@@ -229,9 +229,7 @@ export class WhatsAppService {
       });
 
       if (item) {
-        const showPrice = item.order.status !== 'PENDING';
-        const reviewList = buildOrderReviewList(item.orderId, item.order.items ?? [], showPrice);
-        await this.sendInteractive(from, reviewList, phoneNumberId);
+        await this.resendBuyerView(from, item.orderId, phoneNumberId);
       }
 
       await this.sendText(from, `✅ Updated to: ${name}, ${quantity} ${unit}, ₹${price}`, phoneNumberId);
@@ -259,9 +257,7 @@ export class WhatsAppService {
 
       if (item) {
         await this.sendText(from, `🔢 Quantity updated to *${qty}* ✅`, phoneNumberId);
-        const showPrice = item.order.status !== 'PENDING';
-        const reviewList = buildOrderReviewList(item.orderId, item.order.items ?? [], showPrice);
-        await this.sendInteractive(from, reviewList, phoneNumberId);
+        await this.resendBuyerView(from, item.orderId, phoneNumberId);
       }
       return true;
     }
@@ -845,9 +841,7 @@ export class WhatsAppService {
           });
           if (item) {
             await this.sendText(from, `🔢 Quantity updated to *${qty}* ✅`, phoneNumberId);
-            const showPrice = item.order.status !== 'PENDING';
-            const reviewList = buildOrderReviewList(item.orderId, item.order.items ?? [], showPrice);
-            await this.sendInteractive(from, reviewList, phoneNumberId);
+            await this.resendBuyerView(from, item.orderId, phoneNumberId);
           }
         }
         return;
@@ -1248,15 +1242,26 @@ export class WhatsAppService {
     if (seller) {
       await this.sendInlinePackingSlip(from, orderId, phoneNumberId);
     } else {
-      const order = await this.prisma.order.findUnique({
-        where: { id: orderId },
-        include: { items: true },
-      });
-      if (order) {
-        const showPrice = order.status !== 'PENDING';
-        const reviewList = buildOrderReviewList(orderId, order.items ?? [], showPrice);
-        await this.sendInteractive(from, reviewList, phoneNumberId);
-      }
+      await this.resendBuyerView(from, orderId, phoneNumberId);
+    }
+  }
+
+  /** Resend the correct view for a buyer based on order status */
+  private async resendBuyerView(from: string, orderId: string, phoneNumberId?: string) {
+    const order = await this.prisma.order.findUnique({
+      where: { id: orderId },
+      include: { items: true },
+    });
+    if (!order) return;
+    if (order.status === 'SUBMITTED') {
+      // Price confirmation phase — show prices with edit/confirm
+      const priceConfirm = buildPriceConfirmation(orderId, order.items ?? []);
+      await this.sendInteractive(from, priceConfirm, phoneNumberId);
+    } else {
+      // Reviewing phase (or any other) — show order review
+      const showPrice = order.status !== 'PENDING';
+      const reviewList = buildOrderReviewList(orderId, order.items ?? [], showPrice);
+      await this.sendInteractive(from, reviewList, phoneNumberId);
     }
   }
 
@@ -1311,9 +1316,7 @@ export class WhatsAppService {
         this.logger.warn(`Could not delete empty order ${orderId}`);
       }
     } else {
-      const showPrice = item.order.status !== 'PENDING';
-      const reviewList = buildOrderReviewList(orderId, remaining, showPrice);
-      await this.sendInteractive(buyerPhone, reviewList, phoneNumberId);
+      await this.resendBuyerView(buyerPhone, orderId, phoneNumberId);
     }
   }
 
