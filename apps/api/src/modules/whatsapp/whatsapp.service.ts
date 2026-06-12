@@ -702,7 +702,7 @@ export class WhatsAppService {
     const phoneNumberId = this.configService.get<string>('whatsapp.phoneNumberId') ?? '';
 
     // If the registrant IS the admin, auto-approve immediately
-    if (from === adminPhone) {
+    if (this.isAdmin(from)) {
       await this.sellersService.approveSeller(seller.id);
       await this.sendText(
         from,
@@ -767,10 +767,18 @@ export class WhatsAppService {
 
   // ── Seller approval/rejection handlers ──────────────────────────
 
+  private normalizePhone(phone: string): string {
+    return phone.replace(/^\+/, '').replace(/\s/g, '');
+  }
+
+  private isAdmin(phone: string): boolean {
+    const configured = this.configService.get<string>('seller.phoneNumber') ?? '';
+    return this.normalizePhone(phone) === this.normalizePhone(configured);
+  }
+
   private async handleApproveSeller(adminPhone: string, sellerId: string, phoneNumberId?: string) {
     // Security: verify the caller is actually the admin
-    const configuredAdminPhone = this.configService.get<string>('seller.phoneNumber') ?? '';
-    if (adminPhone !== configuredAdminPhone) {
+    if (!this.isAdmin(adminPhone)) {
       await this.sendText(adminPhone, '⛔ Unauthorized: Only the admin can approve sellers.', phoneNumberId);
       return;
     }
@@ -812,8 +820,7 @@ export class WhatsAppService {
 
   private async handleRejectSeller(adminPhone: string, sellerId: string, phoneNumberId?: string) {
     // Security: verify the caller is actually the admin
-    const configuredAdminPhone = this.configService.get<string>('seller.phoneNumber') ?? '';
-    if (adminPhone !== configuredAdminPhone) {
+    if (!this.isAdmin(adminPhone)) {
       await this.sendText(adminPhone, '⛔ Unauthorized: Only the admin can reject sellers.', phoneNumberId);
       return;
     }
