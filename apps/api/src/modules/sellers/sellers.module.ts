@@ -19,19 +19,17 @@ export class SellersModule implements OnModuleInit {
   ) {}
 
   async onModuleInit() {
-    // One-time migration: activate all existing sellers that had orders before
-    // the approval system was introduced (status defaults to PENDING after db push).
-    // Safe to keep — only affects sellers with 0 ACTIVE sellers + has orders.
-    const activeCount = await this.prisma.seller.count({ where: { status: 'ACTIVE' } });
-    if (activeCount === 0) {
-      const result = await this.prisma.$executeRaw`
-        UPDATE "Seller" SET status = 'ACTIVE'
-        WHERE status = 'PENDING'
-          AND id IN (SELECT DISTINCT "sellerId" FROM "Order")
-      `;
+    // Run every deploy: activate sellers that have orders (idempotent & safe).
+    // Newly-registered sellers (0 orders) stay PENDING until admin approves.
+    try {
+      const result = await this.prisma.$executeRawUnsafe(
+        `UPDATE "Seller" SET status = 'ACTIVE' WHERE status = 'PENDING' AND id IN (SELECT DISTINCT "sellerId" FROM "Order")`
+      );
       if (result > 0) {
-        this.logger.log(`One-time migration: auto-activated ${result} existing seller(s) with orders`);
+        this.logger.log(`Auto-activated ${result} seller(s) with existing orders`);
       }
+    } catch (err) {
+      this.logger.warn(`Migration: could not auto-activate sellers — may already be ACTIVE. ${err instanceof Error ? err.message : err}`);
     }
 
     // Seed a fallback seller if SELLER_PHONE_NUMBER is configured (backward compat)
