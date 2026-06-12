@@ -1039,7 +1039,8 @@ export class WhatsAppService {
           include: { items: true, customer: true },
         });
         if (order) {
-          const priceConfirm = buildPriceConfirmation(orderId, order.items ?? []);
+          // Phase 3 — same look as Phase 1, just with prices shown
+          const priceConfirm = buildOrderReviewList(orderId, order.items ?? [], true);
           await this.sendInteractive(order.customer.phoneNumber, priceConfirm, phoneNumberId);
           // Send seller a button message with next actions instead of plain text
           const afterSendBtn: WhatsAppInteractiveButtons = {
@@ -1147,13 +1148,13 @@ export class WhatsAppService {
 
   private readonly ORDER_TIMEOUT_MS = 3 * 60 * 1000; // 3 minutes
 
-  private async confirmOrder(orderId: string, buyerPhone: string, phoneNumberId?: string) {
+  private async confirmOrder(orderId: string, from: string, phoneNumberId?: string) {
     let order;
     try {
       order = await this.ordersService.findById(orderId);
     } catch {
       await this.sendText(
-        buyerPhone,
+        from,
         '⚠️ Order ab uplabdh nahi hai. Kripya nayi shopping list bhejkar nayi process shuru karein.',
         phoneNumberId,
       );
@@ -1163,6 +1164,16 @@ export class WhatsAppService {
     // Use seller's stored phoneNumberId, fall back to passed param
     const sellerPhoneNumberId = order.seller.phoneNumberId ?? phoneNumberId;
 
+    // ── Phase 3: SUBMITTED → PACKING (buyer confirming prices) ──
+    if (order.status === 'SUBMITTED') {
+      await this.ordersService.transitionStatus(orderId, 'PACKING');
+      await this.sendText(from, '✅ Prices confirmed! The shop will now pack your order.', sellerPhoneNumberId);
+      await this.sendText(order.seller.phoneNumber, `✅ ${order.customer.name ?? 'Buyer'} confirmed prices!\n\nPack & finalize:`, sellerPhoneNumberId);
+      await this.sendInlinePackingSlip(order.seller.phoneNumber, orderId, sellerPhoneNumberId);
+      return;
+    }
+
+    // ── Phase 1: REVIEWING → SUBMITTED (initial confirmation) ──
     // Check if order has expired (3 minutes since creation)
     const elapsed = Date.now() - order.createdAt.getTime();
     if (elapsed > this.ORDER_TIMEOUT_MS) {
@@ -1253,16 +1264,10 @@ export class WhatsAppService {
       include: { items: true },
     });
     if (!order) return;
-    if (order.status === 'SUBMITTED') {
-      // Price confirmation phase — show prices with edit/confirm
-      const priceConfirm = buildPriceConfirmation(orderId, order.items ?? []);
-      await this.sendInteractive(from, priceConfirm, phoneNumberId);
-    } else {
-      // Reviewing phase (or any other) — show order review
-      const showPrice = order.status !== 'PENDING';
-      const reviewList = buildOrderReviewList(orderId, order.items ?? [], showPrice);
-      await this.sendInteractive(from, reviewList, phoneNumberId);
-    }
+    // Same format across phases — only difference: prices shown in Phase 3 (SUBMITTED)
+    const showPrice = order.status !== 'PENDING';
+    const reviewList = buildOrderReviewList(orderId, order.items ?? [], showPrice);
+    await this.sendInteractive(from, reviewList, phoneNumberId);
   }
 
   // ── Inline editor (button-driven via Edit button) ─────────────────
