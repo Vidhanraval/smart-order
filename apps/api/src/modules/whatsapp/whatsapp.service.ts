@@ -138,6 +138,19 @@ export class WhatsAppService {
           return;
         }
 
+        // Detect admin text-command seller approval: "APPROVE <sellerId>" / "REJECT <sellerId>"
+        const adminTextCmd = text.trim().match(/^(APPROVE|REJECT)\s+([\w-]+)$/i);
+        if (adminTextCmd) {
+          const action = adminTextCmd[1]!;
+          const sellerId = adminTextCmd[2]!;
+          if (action.toUpperCase() === 'APPROVE') {
+            await this.handleApproveSeller(from, sellerId, resolvedPhoneNumberId);
+          } else {
+            await this.handleRejectSeller(from, sellerId, resolvedPhoneNumberId);
+          }
+          return;
+        }
+
         // Detect seller registration: "join seller, Store Name"
         if (this.isJoinSeller(text)) {
           await this.handleJoinSeller(from, text);
@@ -715,7 +728,7 @@ export class WhatsAppService {
       phoneNumberId,
     );
 
-    // Notify admin with interactive Approve/Reject buttons
+    // Notify admin — try interactive buttons first, fall back to text
     if (adminPhone) {
       const approvalMsg: WhatsAppInteractiveButtons = {
         type: 'button',
@@ -733,7 +746,22 @@ export class WhatsAppService {
           ],
         },
       };
-      await this.sendInteractive(adminPhone, approvalMsg, phoneNumberId);
+      const result = await this.sendInteractive(adminPhone, approvalMsg, phoneNumberId);
+      if (!result) {
+        // Fallback: send as plain text with instructions
+        this.logger.warn(`Interactive approval msg to admin ${adminPhone} failed — sending text fallback`);
+        await this.sendText(
+          adminPhone,
+          `🆕 *New Seller Registration*\n\n` +
+            `A new seller wants to register:\n` +
+            `📞 Phone: ${from}\n` +
+            `🏪 Store: ${storeName}\n\n` +
+            `Reply with:\n` +
+            `✅ *APPROVE ${seller.id}* to approve\n` +
+            `❌ *REJECT ${seller.id}* to reject`,
+          phoneNumberId,
+        );
+      }
     }
   }
 
