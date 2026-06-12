@@ -1,7 +1,9 @@
 {
   "version": "7.3",
   "data_api_version": "3.0",
-  "routing_model": "data_exchange",
+  "routing_model": {
+    "type": "data_exchange"
+  },
   "screens": [
     {
       "id": "EDIT_ITEM",
@@ -13,7 +15,8 @@
           "label": "Item Name",
           "required": true,
           "max-chars": 80,
-          "default": "{{data.item_name}}"
+          "default": "{{data.item_name}}",
+          "__example__": "Atta"
         },
         "item_price": {
           "type": "textInput",
@@ -21,7 +24,8 @@
           "required": false,
           "input-type": "number",
           "max-chars": 10,
-          "default": "{{data.item_price}}"
+          "default": "{{data.item_price}}",
+          "__example__": "60"
         },
         "item_quantity": {
           "type": "dropdown",
@@ -39,7 +43,8 @@
             { "id": "9", "title": "9" },
             { "id": "10", "title": "10" }
           ],
-          "default": "{{data.item_quantity}}"
+          "default": "{{data.item_quantity}}",
+          "__example__": "2"
         }
       },
       "layout": {
@@ -81,25 +86,14 @@
                 ]
               }
             ]
+          },
+          {
+            "type": "Footer",
+            "label": "Save Changes",
+            "on-click-action": "data_exchange"
           }
         ]
-      },
-      "footer": {
-        "type": "TextFooter",
-        "text": "SmartOrder"
-      },
-      "buttons": [
-        {
-          "type": "primary",
-          "action": "data_exchange",
-          "title": "Save Changes"
-        },
-        {
-          "type": "secondary",
-          "action": "close",
-          "title": "Cancel"
-        }
-      ]
+      }
     }
   ]
 }
