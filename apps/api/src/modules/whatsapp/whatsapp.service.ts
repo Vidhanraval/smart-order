@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { OrderItem } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AiService } from '../ai/ai.service';
 import { OrdersService } from '../orders/orders.service';
@@ -303,7 +304,7 @@ export class WhatsAppService {
 
     if (pending.action === 'seller_edit') {
       // Seller edit: "Price, Name" or "Name, Price" or just "Price"
-      let cleanText = text.replace(/[₹]/g, '').trim();
+      const cleanText = text.replace(/[₹]/g, '').trim();
 
       // Split by common separators
       let parts: string[] = [];
@@ -702,7 +703,7 @@ export class WhatsAppService {
     const phoneNumberId = this.configService.get<string>('whatsapp.phoneNumberId') ?? '';
 
     // If the registrant IS the admin, auto-approve immediately
-    if (this.isAdmin(from)) {
+    if (from === adminPhone) {
       await this.sellersService.approveSeller(seller.id);
       await this.sendText(
         from,
@@ -767,18 +768,10 @@ export class WhatsAppService {
 
   // ── Seller approval/rejection handlers ──────────────────────────
 
-  private normalizePhone(phone: string): string {
-    return phone.replace(/^\+/, '').replace(/\s/g, '');
-  }
-
-  private isAdmin(phone: string): boolean {
-    const configured = this.configService.get<string>('seller.phoneNumber') ?? '';
-    return this.normalizePhone(phone) === this.normalizePhone(configured);
-  }
-
   private async handleApproveSeller(adminPhone: string, sellerId: string, phoneNumberId?: string) {
     // Security: verify the caller is actually the admin
-    if (!this.isAdmin(adminPhone)) {
+    const configuredAdminPhone = this.configService.get<string>('seller.phoneNumber') ?? '';
+    if (adminPhone !== configuredAdminPhone) {
       await this.sendText(adminPhone, '⛔ Unauthorized: Only the admin can approve sellers.', phoneNumberId);
       return;
     }
@@ -820,7 +813,8 @@ export class WhatsAppService {
 
   private async handleRejectSeller(adminPhone: string, sellerId: string, phoneNumberId?: string) {
     // Security: verify the caller is actually the admin
-    if (!this.isAdmin(adminPhone)) {
+    const configuredAdminPhone = this.configService.get<string>('seller.phoneNumber') ?? '';
+    if (adminPhone !== configuredAdminPhone) {
       await this.sendText(adminPhone, '⛔ Unauthorized: Only the admin can reject sellers.', phoneNumberId);
       return;
     }
@@ -1350,14 +1344,16 @@ export class WhatsAppService {
     }
 
     // Use seller's stored phoneNumberId, fall back to passed param
-    const sellerPhoneNumberId = order.seller.phoneNumberId ?? phoneNumberId;
+    const sellerPhoneNumberId: string = order.seller.phoneNumberId ?? phoneNumberId ?? '';
+    const sellerPhone: string = order.seller.phoneNumber;
+    const customerPhone: string = order.customer.phoneNumber;
 
     // ── Phase 3: SUBMITTED → PACKING (buyer confirming prices) ──
     if (order.status === 'SUBMITTED') {
       await this.ordersService.transitionStatus(orderId, 'PACKING');
       await this.sendText(from, '✅ Prices confirmed! The shop will now pack your order.', sellerPhoneNumberId);
-      await this.sendText(order.seller.phoneNumber, `✅ ${order.customer.name ?? 'Buyer'} confirmed prices!\n\nPack & finalize:`, sellerPhoneNumberId);
-      await this.sendInlinePackingSlip(order.seller.phoneNumber, orderId, sellerPhoneNumberId);
+      await this.sendText(sellerPhone, `✅ ${order.customer.name ?? 'Buyer'} confirmed prices!\n\nPack & finalize:`, sellerPhoneNumberId);
+      await this.sendInlinePackingSlip(sellerPhone, orderId, sellerPhoneNumberId);
       return;
     }
 
@@ -1372,7 +1368,7 @@ export class WhatsAppService {
         this.logger.warn(`Could not mark order ${orderId} as EXPIRED (may already be expired): ${msg}`);
       }
       await this.sendText(
-        order.customer.phoneNumber,
+        customerPhone,
         '⏰ Aapki shopping process ki samay seema samapt ho chuki hai.\nKripya nayi shopping list bhejkar nayi process shuru karein.',
         sellerPhoneNumberId,
       );
@@ -1383,14 +1379,14 @@ export class WhatsAppService {
 
     // Fire buyer + seller notifications in parallel — seller gets instant alert
     const buyerMsg = this.sendText(
-      order.customer.phoneNumber,
+      customerPhone,
       `✅ Order sent! The shop will review and set prices.\n\nYou'll receive a price confirmation shortly.`,
       sellerPhoneNumberId,
     );
 
     const sellerMsg = this.sendText(
-      order.seller.phoneNumber,
-      `🛒 New Order from ${order.customer.name ?? order.customer.phoneNumber}!\n\n` +
+      sellerPhone,
+      `🛒 New Order from ${order.customer.name ?? customerPhone}!\n\n` +
         `Items: ${order.items?.length ?? 0}\n` +
         `Order #${order.id.slice(-6).toUpperCase()}`,
       sellerPhoneNumberId,
@@ -1400,7 +1396,7 @@ export class WhatsAppService {
 
     // Send packing slip so seller can set prices first.
     // PACKING starts after buyer confirms the prices.
-    await this.sendInlinePackingSlip(order.seller.phoneNumber, orderId, sellerPhoneNumberId);
+    await this.sendInlinePackingSlip(sellerPhone, orderId, sellerPhoneNumberId);
   }
 
   private async promptPackItem(sellerPhone: string, itemId: string, phoneNumberId?: string) {
@@ -1462,10 +1458,10 @@ export class WhatsAppService {
 
   private async showInlineEditor(
     sellerPhone: string,
-    item: { id: string; name: string; estimatedPrice: number | null },
+    item: OrderItem,
     phoneNumberId?: string,
   ) {
-    const editOptions = buildInlineEditOptions(item as any);
+    const editOptions = buildInlineEditOptions(item);
     await this.sendInteractive(sellerPhone, editOptions, phoneNumberId);
   }
 
@@ -1484,7 +1480,6 @@ export class WhatsAppService {
 
     const itemName = item.name;
     const orderId = item.orderId;
-    const items = item.order.items ?? [];
 
     // Delete the item
     await this.prisma.orderItem.delete({ where: { id: itemId } });
@@ -1760,7 +1755,9 @@ export class WhatsAppService {
       if (body?.text) {
         try {
           await this.sendText(to, `📋 ${header?.text ?? 'Update'}\n\n${body.text}`, phoneNumberId);
-        } catch {}
+        } catch {
+          this.logger.warn(`Fallback text send also failed for ${to}`);
+        }
       }
 
       return null;
@@ -1777,7 +1774,7 @@ export class WhatsAppService {
       { headers: { Authorization: `Bearer ${accessToken}` } },
     );
 
-    const mediaUrl = urlResponse.data.url;
+    const mediaUrl: string = urlResponse.data.url;
 
     const mediaResponse = await axios.get(mediaUrl, {
       headers: { Authorization: `Bearer ${accessToken}` },

@@ -59,7 +59,7 @@ export class SellersService {
   }
 
   async findById(id: string) {
-    return this.prisma.seller.findUnique({ where: { id }, include: { orders: true } });
+    return this.prisma.seller.findUnique({ where: { id } });
   }
 
   async findByPhone(phoneNumber: string) {
