@@ -33,6 +33,12 @@ out/
 build
 dist
 
+# Compiled TypeScript output (declaration + source maps)
+*.d.ts
+*.d.ts.map
+*.js
+!*.config.js
+
 # IDEs and editors
 /.idea
 .project
