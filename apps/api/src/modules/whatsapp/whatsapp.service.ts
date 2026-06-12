@@ -1047,7 +1047,19 @@ export class WhatsAppService {
         if (order) {
           const priceConfirm = buildPriceConfirmation(orderId, order.items ?? []);
           await this.sendInteractive(order.customer.phoneNumber, priceConfirm, phoneNumberId);
-          await this.sendText(from, '📤 Prices sent to buyer for confirmation!', phoneNumberId);
+          // Send seller a button message with next actions instead of plain text
+          const afterSendBtn: WhatsAppInteractiveButtons = {
+            type: 'button',
+            header: { type: 'text', text: '📤 Approval Sent' },
+            body: { text: `Prices sent to ${order.customer.name ?? 'buyer'} for confirmation!\n\nWaiting for buyer to confirm...\n\nWhat would you like to do?` },
+            action: {
+              buttons: [
+                { type: 'reply', reply: { id: `checkstatus_${orderId}`, title: '📋 Check Status' } },
+                { type: 'reply', reply: { id: `editaftersend_${orderId}`, title: '✏️ Edit Order' } },
+              ],
+            },
+          };
+          await this.sendInteractive(from, afterSendBtn, phoneNumberId);
         }
         return;
       }
@@ -1073,6 +1085,61 @@ export class WhatsAppService {
       if (replyId.startsWith('finalize_')) {
         const orderId = replyId.replace('finalize_', '');
         await this.finalizeOrder(from, orderId, phoneNumberId);
+        return;
+      }
+
+      // checkstatus_<orderId> — Seller checks if buyer confirmed yet
+      if (replyId.startsWith('checkstatus_')) {
+        const orderId = replyId.replace('checkstatus_', '');
+        const order = await this.prisma.order.findUnique({
+          where: { id: orderId },
+          include: { items: true, customer: true, seller: true },
+        });
+        if (!order) {
+          await this.sendText(from, '❌ Order not found.', phoneNumberId);
+          return;
+        }
+        if (order.status === 'PACKING' || order.status === 'READY_FOR_PICKUP' || order.status === 'COMPLETED') {
+          // Buyer has confirmed! Send packing slip
+          const sellerPnId = order.seller?.phoneNumberId ?? phoneNumberId;
+          await this.sendText(from, `✅ ${order.customer?.name ?? 'Buyer'} has confirmed the prices!`, sellerPnId);
+          await this.sendInlinePackingSlip(from, orderId, sellerPnId);
+        } else if (order.status === 'SUBMITTED') {
+          // Still waiting for buyer
+          const stillWaitingBtn: WhatsAppInteractiveButtons = {
+            type: 'button',
+            body: { text: `⏳ Still waiting for ${order.customer?.name ?? 'buyer'} to confirm prices.\n\nThey need to tap "Confirm & Start Packing" on the price list.` },
+            action: {
+              buttons: [
+                { type: 'reply', reply: { id: `checkstatus_${orderId}`, title: '📋 Check Again' } },
+                { type: 'reply', reply: { id: `editaftersend_${orderId}`, title: '✏️ Edit Order' } },
+              ],
+            },
+          };
+          await this.sendInteractive(from, stillWaitingBtn, phoneNumberId);
+        } else {
+          await this.sendText(from, `📋 Order status: ${order.status}`, phoneNumberId);
+        }
+        return;
+      }
+
+      // editaftersend_<orderId> — Seller wants to edit order after sending approval
+      if (replyId.startsWith('editaftersend_')) {
+        const orderId = replyId.replace('editaftersend_', '');
+        const order = await this.prisma.order.findUnique({
+          where: { id: orderId },
+          include: { items: true },
+        });
+        if (!order) {
+          await this.sendText(from, '❌ Order not found.', phoneNumberId);
+          return;
+        }
+        if (order.status !== 'SUBMITTED') {
+          await this.sendText(from, `⚠️ Order is already in ${order.status} status. Cannot edit now.`, phoneNumberId);
+          return;
+        }
+        await this.sendText(from, '✏️ Edit mode — update prices/items and send again:', phoneNumberId);
+        await this.sendInlinePackingSlip(from, orderId, phoneNumberId);
         return;
       }
     } catch (error: unknown) {
