@@ -22,29 +22,39 @@ export class SellersService {
     return seller;
   }
 
-  async upsert(phoneNumber: string, phoneNumberId?: string, name?: string) {
+  async upsert(phoneNumber: string, phoneNumberId?: string, storeName?: string) {
     const existing = await this.prisma.seller.findUnique({
       where: { phoneNumber },
     });
 
     if (existing) {
-      // Update phoneNumberId if it changed (or was previously null)
+      // Build update data for changed fields (batch into one query)
+      const updateData: Record<string, string> = {};
+
       if (phoneNumberId && existing.phoneNumberId !== phoneNumberId) {
+        updateData.phoneNumberId = phoneNumberId;
+      }
+
+      if (storeName && storeName !== existing.storeName) {
+        updateData.storeName = storeName;
+      }
+
+      if (Object.keys(updateData).length > 0) {
         const updated = await this.prisma.seller.update({
           where: { phoneNumber },
-          data: { phoneNumberId, name: name ?? existing.name },
+          data: updateData,
         });
-        this.logger.log(`Updated seller ${phoneNumber} phoneNumberId: ${phoneNumberId}`);
+        this.logger.log(`Updated seller ${phoneNumber}: ${JSON.stringify(updateData)}`);
         return updated;
       }
       return existing;
     }
 
-    // Create new seller
+    // Create new seller — status defaults to PENDING via Prisma schema default
     const seller = await this.prisma.seller.create({
-      data: { phoneNumber, phoneNumberId, name },
+      data: { phoneNumber, phoneNumberId, storeName },
     });
-    this.logger.log(`Auto-created seller: ${phoneNumber} (phoneNumberId: ${phoneNumberId})`);
+    this.logger.log(`Created seller: ${phoneNumber} (storeName: ${storeName})`);
     return seller;
   }
 
@@ -59,7 +69,7 @@ export class SellersService {
   async findByStoreName(storeName: string) {
     // Find sellers whose storeName contains the search term
     const sellers = await this.prisma.seller.findMany({
-      where: { storeName: { not: null } },
+      where: { storeName: { not: null }, status: 'ACTIVE' },
     });
     // Filter in JS for case-insensitive matching (works with both SQLite and PostgreSQL)
     const lower = storeName.toLowerCase();
@@ -73,12 +83,31 @@ export class SellersService {
     return this.prisma.seller.findMany({ include: { orders: true } });
   }
 
+  async findPendingSellers() {
+    return this.prisma.seller.findMany({
+      where: { status: 'PENDING' },
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+
+  async approveSeller(id: string) {
+    return this.prisma.seller.update({
+      where: { id },
+      data: { status: 'ACTIVE' },
+    });
+  }
+
+  async rejectSeller(id: string) {
+    return this.prisma.seller.delete({ where: { id } });
+  }
+
   async getSummary() {
     const rows = await this.prisma.$queryRawUnsafe<
       Array<{
         phone_number: string;
         name: string | null;
         store_name: string | null;
+        status: string | null;
         total_orders: number;
         completed_orders: number;
         total_revenue: number;
@@ -89,13 +118,14 @@ export class SellersService {
         s."phoneNumber" AS phone_number,
         s.name,
         s."storeName" AS store_name,
+        s.status,
         COUNT(o.id)::int AS total_orders,
         COUNT(o.id) FILTER (WHERE o.status = 'COMPLETED')::int AS completed_orders,
         COALESCE(SUM(o."totalPrice") FILTER (WHERE o."totalPrice" IS NOT NULL), 0)::float AS total_revenue,
         MAX(o."createdAt") AS last_order_date
       FROM "Seller" s
       LEFT JOIN "Order" o ON o."sellerId" = s.id
-      GROUP BY s.id, s."phoneNumber", s.name, s."storeName"
+      GROUP BY s.id, s."phoneNumber", s.name, s."storeName", s.status
       ORDER BY total_orders DESC
     `);
 

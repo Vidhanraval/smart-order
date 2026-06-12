@@ -682,18 +682,140 @@ export class WhatsAppService {
       }
     }
 
-    // Use the seller's WhatsApp Business number to register them
     const seller = await this.sellersService.upsert(from, undefined, storeName);
-    this.logger.log(`Seller registered/updated via WhatsApp: ${from} → ${storeName} (${seller.id})`);
+    this.logger.log(`Seller registered via WhatsApp: ${from} → ${storeName} (${seller.id})`);
 
+    const adminPhone = this.configService.get<string>('seller.phoneNumber') ?? '';
+    const phoneNumberId = this.configService.get<string>('whatsapp.phoneNumberId') ?? '';
+
+    // If the registrant IS the admin, auto-approve immediately
+    if (from === adminPhone) {
+      await this.sellersService.approveSeller(seller.id);
+      await this.sendText(
+        from,
+        `✅ *Registration Successful!*\n\n` +
+          `Welcome, *${storeName}*! 🎉\n\n` +
+          `Aap seller ke roop mein register ho gaye hain. Ab buyers aapka naam lekar order bhejenge:\n\n` +
+          `📝 _${storeName}: Atta 5kg, Chawal 3kg_\n\n` +
+          `Jab koi buyer order confirm karega, aapko packing slip yahi bheji jayegi.\n\n` +
+          `Happy selling! 🛒`,
+        phoneNumberId,
+      );
+      return;
+    }
+
+    // Normal flow: registrant set to PENDING, admin notified
     await this.sendText(
       from,
-      `✅ *Registration Successful!*\n\n` +
-        `Welcome, *${storeName}*! 🎉\n\n` +
-        `Aap seller ke roop mein register ho gaye hain. Ab buyers aapka naam lekar order bhejenge:\n\n` +
-        `📝 _${storeName}: Atta 5kg, Chawal 3kg_\n\n` +
+      `📝 *Registration Submitted!*\n\n` +
+        `Thank you for registering *${storeName}*! 🎉\n\n` +
+        `Aapka registration admin approval ke liye bhej diya gaya hai.\n` +
+        `Approval ke baad aapko suchit kar diya jayega.\n\n` +
+        `⏳ Kripya prateeksha karein.`,
+      phoneNumberId,
+    );
+
+    // Notify admin with interactive Approve/Reject buttons
+    if (adminPhone) {
+      const approvalMsg: WhatsAppInteractiveButtons = {
+        type: 'button',
+        header: { type: 'text', text: '🆕 New Seller Registration' },
+        body: {
+          text: `A new seller wants to register:\n\n` +
+            `📞 *Phone:* ${from}\n` +
+            `🏪 *Store:* ${storeName}\n\n` +
+            `Approve or reject this seller?`,
+        },
+        action: {
+          buttons: [
+            { type: 'reply', reply: { id: `approve_seller_${seller.id}`, title: '✅ Approve' } },
+            { type: 'reply', reply: { id: `reject_seller_${seller.id}`, title: '❌ Reject' } },
+          ],
+        },
+      };
+      await this.sendInteractive(adminPhone, approvalMsg, phoneNumberId);
+    }
+  }
+
+  // ── Seller approval/rejection handlers ──────────────────────────
+
+  private async handleApproveSeller(adminPhone: string, sellerId: string, phoneNumberId?: string) {
+    // Security: verify the caller is actually the admin
+    const configuredAdminPhone = this.configService.get<string>('seller.phoneNumber') ?? '';
+    if (adminPhone !== configuredAdminPhone) {
+      await this.sendText(adminPhone, '⛔ Unauthorized: Only the admin can approve sellers.', phoneNumberId);
+      return;
+    }
+
+    const seller = await this.sellersService.findById(sellerId);
+    if (!seller) {
+      await this.sendText(adminPhone, '❌ Seller not found. They may have already been removed.', phoneNumberId);
+      return;
+    }
+
+    if (seller.status !== 'PENDING') {
+      await this.sendText(adminPhone, `⚠️ Seller is already *${seller.status}*. No action needed.`, phoneNumberId);
+      return;
+    }
+
+    await this.sellersService.approveSeller(sellerId);
+    this.logger.log(`Seller approved: ${seller.phoneNumber} (${seller.storeName})`);
+
+    // Confirm to admin
+    await this.sendText(
+      adminPhone,
+      `✅ *${seller.storeName ?? 'Seller'}* has been approved!\n\nThey can now receive orders.`,
+      phoneNumberId,
+    );
+
+    // Welcome the seller
+    const sellerPnId = seller.phoneNumberId ?? phoneNumberId;
+    await this.sendText(
+      seller.phoneNumber,
+      `✅ *Registration Approved!* 🎉\n\n` +
+        `Welcome, *${seller.storeName ?? 'Your Store'}*!\n\n` +
+        `Ab aap seller ke roop mein active hain. Buyers aapka naam lekar order bhej sakte hain:\n\n` +
+        `📝 _${seller.storeName ?? 'StoreName'}: Atta 5kg, Chawal 3kg_\n\n` +
         `Jab koi buyer order confirm karega, aapko packing slip yahi bheji jayegi.\n\n` +
         `Happy selling! 🛒`,
+      sellerPnId,
+    );
+  }
+
+  private async handleRejectSeller(adminPhone: string, sellerId: string, phoneNumberId?: string) {
+    // Security: verify the caller is actually the admin
+    const configuredAdminPhone = this.configService.get<string>('seller.phoneNumber') ?? '';
+    if (adminPhone !== configuredAdminPhone) {
+      await this.sendText(adminPhone, '⛔ Unauthorized: Only the admin can reject sellers.', phoneNumberId);
+      return;
+    }
+
+    const seller = await this.sellersService.findById(sellerId);
+    if (!seller) {
+      await this.sendText(adminPhone, '❌ Seller not found. They may have already been removed.', phoneNumberId);
+      return;
+    }
+
+    const storeName = seller.storeName ?? 'Seller';
+
+    await this.sellersService.rejectSeller(sellerId);
+    this.logger.log(`Seller rejected and removed: ${seller.phoneNumber} (${storeName})`);
+
+    // Confirm to admin
+    await this.sendText(
+      adminPhone,
+      `❌ *${storeName}* has been rejected and removed.`,
+      phoneNumberId,
+    );
+
+    // Notify the rejected seller
+    const sellerPnId = seller.phoneNumberId ?? phoneNumberId;
+    await this.sendText(
+      seller.phoneNumber,
+      `❌ *Registration Rejected*\n\n` +
+        `Unfortunately, your registration for *${storeName}* has been rejected.\n\n` +
+        `Please contact the admin for more information.`,
+      sellerPnId,
     );
   }
 
@@ -1150,6 +1272,22 @@ export class WhatsAppService {
         }
         await this.sendText(from, '✏️ Edit mode — update prices/items and send again:', phoneNumberId);
         await this.sendInlinePackingSlip(from, orderId, phoneNumberId);
+        return;
+      }
+
+      // ── Seller approval handlers ────────────────────────────────────
+
+      // approve_seller_<sellerId> — Admin approves a seller registration
+      if (replyId.startsWith('approve_seller_')) {
+        const sellerId = replyId.replace('approve_seller_', '');
+        await this.handleApproveSeller(from, sellerId, phoneNumberId);
+        return;
+      }
+
+      // reject_seller_<sellerId> — Admin rejects a seller registration
+      if (replyId.startsWith('reject_seller_')) {
+        const sellerId = replyId.replace('reject_seller_', '');
+        await this.handleRejectSeller(from, sellerId, phoneNumberId);
         return;
       }
     } catch (error: unknown) {

@@ -23,6 +23,11 @@ export class SellersModule implements OnModuleInit {
     if (sellerPhone) {
       const phoneNumberId = this.configService.get<string>('whatsapp.phoneNumberId') ?? undefined;
       const seller = await this.sellersService.upsert(sellerPhone, phoneNumberId, 'Local Shop');
+      // Ensure the fallback/default seller is always ACTIVE (not PENDING)
+      if (seller.status !== 'ACTIVE') {
+        await this.sellersService.approveSeller(seller.id);
+        this.logger.log(`Fallback seller auto-activated: ${seller.phoneNumber}`);
+      }
       this.logger.log(`Fallback seller ready: ${seller.phoneNumber}`);
     } else {
       this.logger.log('No SELLER_PHONE_NUMBER configured — sellers will be auto-created from incoming webhook messages');

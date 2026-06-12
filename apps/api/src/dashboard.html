@@ -98,6 +98,7 @@
               <div class="buyer-number">📱 ${s.phone_number}  |  👤 ${s.name || '—'}</div>
             </div>
             <div class="buyer-stats">
+              ${s.status === 'ACTIVE' ? '🟢 Active' : s.status === 'PENDING' ? '🟡 Pending' : s.status || ''} &nbsp;|&nbsp;
               📋 ${s.total_orders} orders &nbsp;|&nbsp;
               ✅ ${s.completed_orders} done &nbsp;|&nbsp;
               💰 ₹${s.total_revenue} revenue
