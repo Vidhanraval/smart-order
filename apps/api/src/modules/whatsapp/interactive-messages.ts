@@ -59,7 +59,7 @@ function formatItemLine(item: OrderItem, index: number, showStatus = false, show
   return line;
 }
 
-function formatItemsList(items: OrderItem[], showStatus = false, showPrice = true): string {
+export function formatItemsList(items: OrderItem[], showStatus = false, showPrice = true): string {
   return items.map((item, i) => formatItemLine(item, i + 1, showStatus, showPrice)).join('\n');
 }
 

@@ -17,7 +17,7 @@ import {
   buildInlineEditOptions,
   buildPricePicker,
   buildBuyerQtyPicker,
-  buildPriceConfirmation,
+  formatItemsList,
   WhatsAppInteractiveButtons,
 } from './interactive-messages';
 import axios from 'axios';
@@ -1039,22 +1039,37 @@ export class WhatsAppService {
           include: { items: true, customer: true },
         });
         if (order) {
-          // Phase 3 — same look as Phase 1, just with prices shown
-          const priceConfirm = buildOrderReviewList(orderId, order.items ?? [], true);
-          await this.sendInteractive(order.customer.phoneNumber, priceConfirm, phoneNumberId);
-          // Send seller a button message with next actions instead of plain text
-          const afterSendBtn: WhatsAppInteractiveButtons = {
-            type: 'button',
+          // Phase 3 — custom message: "Approval Sent" header, prices shown
+          const total = (order.items ?? []).reduce((sum, i) => sum + (i.estimatedPrice ?? 0) * i.quantity, 0);
+          const buyerMsg: InteractiveMessage = {
+            type: 'list',
             header: { type: 'text', text: '📤 Approval Sent' },
-            body: { text: `Prices sent to ${order.customer.name ?? 'buyer'} for confirmation!\n\nWaiting for buyer to confirm...\n\nWhat would you like to do?` },
+            body: {
+              text: `Prices sent to ${order.customer.name ?? 'you'} for confirmation!\n\n${formatItemsList(order.items ?? [], false, true)}\n\n💰 *Total: ₹${total}*\n\nTap an item to edit or confirm:`,
+            },
+            footer: { text: 'SmartOrder' },
             action: {
-              buttons: [
-                { type: 'reply', reply: { id: `checkstatus_${orderId}`, title: '📋 Check Status' } },
-                { type: 'reply', reply: { id: `editaftersend_${orderId}`, title: '✏️ Edit Order' } },
+              button: 'Review Order',
+              sections: [
+                {
+                  title: 'Items',
+                  rows: [
+                    ...(order.items ?? []).map((item) => ({
+                      id: `edit_${item.id}`,
+                      title: item.name,
+                      description: `${item.quantity} ${item.unit} — ₹${item.estimatedPrice ?? '?'}`,
+                    })),
+                    {
+                      id: `confirm_${orderId}`,
+                      title: '✅ Confirm Order',
+                      description: `Total: ₹${total}`,
+                    },
+                  ],
+                },
               ],
             },
           };
-          await this.sendInteractive(from, afterSendBtn, phoneNumberId);
+          await this.sendInteractive(order.customer.phoneNumber, buyerMsg, phoneNumberId);
         }
         return;
       }
