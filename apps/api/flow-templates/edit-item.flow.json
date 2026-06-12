@@ -2,7 +2,7 @@
   "version": "7.3",
   "data_api_version": "3.0",
   "routing_model": {
-    "type": "data_exchange"
+    "type": ["data_exchange"]
   },
   "screens": [
     {
@@ -90,7 +90,9 @@
           {
             "type": "Footer",
             "label": "Save Changes",
-            "on-click-action": "data_exchange"
+            "on-click-action": {
+              "name": "data_exchange"
+            }
           }
         ]
       }
