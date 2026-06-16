@@ -23,12 +23,17 @@ export class FlowsService {
   ): Promise<FlowDataExchangeResponse> {
     this.logger.log(`Flow data-exchange: action=${body.action}`);
 
+    // Meta health-check ping
+    if (body.action === 'ping') {
+      return { data: { status: 'active' } };
+    }
     if (body.action === 'INIT') {
       return this.handleInit(body);
     }
     if (body.action === 'data_exchange') {
       return this.handleDataExchangeAction(body);
     }
+    this.logger.warn(`Unknown flow action: ${body.action}`);
     return { action: 'error', error: 'Unknown action' };
   }
 
