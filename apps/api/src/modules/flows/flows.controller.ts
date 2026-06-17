@@ -28,6 +28,6 @@ export class FlowsController {
 
   @Get('health')
   health() {
-    return { status: 'ok' };
+    return { data: { status: 'active' } };
   }
 }
