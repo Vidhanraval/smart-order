@@ -1,11 +1,29 @@
 import { Injectable, Logger, BadRequestException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import * as crypto from 'crypto';
 import { PrismaService } from '../../prisma/prisma.service';
-import {
-  FlowDataExchangeRequest,
-  FlowDataExchangeResponse,
-  FlowTokenPayload,
-} from './dto/flows.dto';
+import { FlowTokenPayload } from './dto/flows.dto';
+
+// ── Types ─────────────────────────────────────────────────────────
+
+interface EncryptedRequest {
+  encrypted_flow_data: string;
+  encrypted_aes_key: string;
+  initial_vector: string;
+}
+
+interface DecryptedPayload {
+  version: string;
+  action: string;
+  screen?: string;
+  data?: Record<string, unknown>;
+  flow_token?: string;
+}
+
+interface FlowResponse {
+  screen?: string;
+  data?: Record<string, unknown>;
+}
 
 @Injectable()
 export class FlowsService {
@@ -16,51 +34,125 @@ export class FlowsService {
     private readonly configService: ConfigService,
   ) {}
 
-  // ── Main entry point for Meta Flows data-exchange endpoint ───
+  // ── Main entry point: decrypt → process → encrypt → return ───
 
-  async handleDataExchange(
-    body: FlowDataExchangeRequest,
-  ): Promise<FlowDataExchangeResponse> {
-    this.logger.log(`Flow data-exchange: action=${body.action}`);
+  async handleEncryptedRequest(body: EncryptedRequest): Promise<string> {
+    // 1. Decrypt the incoming request
+    const { decrypted, aesKey, iv } = this.decryptRequest(body);
+    this.logger.log(`Flow request: action=${decrypted.action} screen=${decrypted.screen}`);
 
-    // Meta health-check ping
-    if ((body.action as string) === 'ping') {
-      return { data: { status: 'active' } };
+    // 2. Process based on action
+    let response: FlowResponse;
+    switch (decrypted.action) {
+      case 'ping':
+        response = { data: { status: 'active' } };
+        break;
+      case 'INIT':
+        response = await this.handleInit(decrypted);
+        break;
+      case 'data_exchange':
+        response = await this.handleDataExchange(decrypted);
+        break;
+      default:
+        this.logger.warn(`Unknown flow action: ${decrypted.action}`);
+        response = { data: { error: 'Unknown action' } };
     }
-    if (body.action === 'INIT') {
-      return this.handleInit(body);
+
+    // 3. Encrypt and return response
+    return this.encryptResponse(response, aesKey, iv);
+  }
+
+  // ── Decryption ──────────────────────────────────────────────────
+
+  private decryptRequest(body: EncryptedRequest): {
+    decrypted: DecryptedPayload;
+    aesKey: Buffer;
+    iv: Buffer;
+  } {
+    const privateKeyPem = this.configService.get<string>('whatsapp.flowPrivateKey') ?? '';
+    if (!privateKeyPem) {
+      throw new BadRequestException('Flow private key not configured');
     }
-    if (body.action === 'data_exchange') {
-      return this.handleDataExchangeAction(body);
-    }
-    this.logger.warn(`Unknown flow action: ${body.action}`);
-    return { action: 'error', error: 'Unknown action' };
+
+    const encryptedFlowData = Buffer.from(body.encrypted_flow_data, 'base64');
+    const encryptedAesKey = Buffer.from(body.encrypted_aes_key, 'base64');
+    const iv = Buffer.from(body.initial_vector, 'base64');
+
+    // Decrypt AES key with RSA private key
+    const privateKey = crypto.createPrivateKey({
+      key: privateKeyPem,
+      format: 'pem',
+      type: 'pkcs1',
+    });
+
+    const aesKey = crypto.privateDecrypt(
+      {
+        key: privateKey,
+        padding: crypto.constants.RSA_PKCS1_OAEP_PADDING,
+        oaepHash: 'sha256',
+      },
+      encryptedAesKey,
+    );
+
+    // Decrypt flow data with AES-128-GCM
+    const TAG_LENGTH = 16;
+    const encryptedBody = encryptedFlowData.subarray(0, -TAG_LENGTH);
+    const authTag = encryptedFlowData.subarray(-TAG_LENGTH);
+
+    const decipher = crypto.createDecipheriv('aes-128-gcm', aesKey, iv);
+    decipher.setAuthTag(authTag);
+
+    const decrypted = Buffer.concat([
+      decipher.update(encryptedBody),
+      decipher.final(),
+    ]);
+
+    const payload = JSON.parse(decrypted.toString('utf8')) as DecryptedPayload;
+    return { decrypted: payload, aesKey, iv };
+  }
+
+  // ── Encryption ──────────────────────────────────────────────────
+
+  private encryptResponse(
+    response: FlowResponse,
+    aesKey: Buffer,
+    iv: Buffer,
+  ): string {
+    // Flip the IV (Meta spec)
+    const flippedIv = Buffer.from(iv.map((b) => b ^ 0xff));
+
+    const cipher = crypto.createCipheriv('aes-128-gcm', aesKey, flippedIv);
+    const json = JSON.stringify(response);
+
+    const encrypted = Buffer.concat([
+      cipher.update(json, 'utf8'),
+      cipher.final(),
+      cipher.getAuthTag(),
+    ]);
+
+    return encrypted.toString('base64');
   }
 
   // ── INIT: WhatsApp opens the flow → return prefilled data ───
 
-  private async handleInit(
-    body: FlowDataExchangeRequest,
-  ): Promise<FlowDataExchangeResponse> {
-    const flowToken = (body.data?.flow_token ??
-      body.flow_token) as string | undefined;
+  private async handleInit(payload: DecryptedPayload): Promise<FlowResponse> {
+    const flowToken = (payload.data?.flow_token || payload.flow_token) as string | undefined;
 
     if (!flowToken) {
       this.logger.warn('INIT with no flow_token');
-      return { action: 'error', error: 'Missing flow_token' };
+      return { data: { error_message: 'Missing flow_token' } };
     }
 
     let ctx: FlowTokenPayload;
     try {
       ctx = this.decodeFlowToken(flowToken);
     } catch {
-      this.logger.warn(`Invalid flow_token: ${flowToken.slice(0, 20)}...`);
-      return { action: 'error', error: 'Invalid flow_token' };
+      return { data: { error_message: 'Invalid session' } };
     }
 
-    // Expire tokens after 15 minutes
+    // Expire after 15 minutes
     if (Date.now() - ctx.iat > 15 * 60 * 1000) {
-      return { action: 'error', error: 'Session expired. Please try editing again.' };
+      return { data: { error_message: 'Session expired. Please try again.' } };
     }
 
     const item = await this.prisma.orderItem.findUnique({
@@ -68,11 +160,10 @@ export class FlowsService {
     });
 
     if (!item) {
-      return { action: 'error', error: 'Item not found. It may have been deleted.' };
+      return { data: { error_message: 'Item not found.' } };
     }
 
     return {
-      action: 'INIT',
       data: {
         item_name: item.name,
         item_price: item.estimatedPrice?.toString() ?? '',
@@ -81,27 +172,25 @@ export class FlowsService {
     };
   }
 
-  // ── data_exchange: user tapped "Save Changes" → validate + update DB ──
+  // ── data_exchange: user tapped "Save Changes" → validate + update ──
 
-  private async handleDataExchangeAction(
-    body: FlowDataExchangeRequest,
-  ): Promise<FlowDataExchangeResponse> {
-    const data = (body.data ?? {}) as Record<string, string>;
-    const flowToken = (data.flow_token ?? body.flow_token) as string | undefined;
+  private async handleDataExchange(payload: DecryptedPayload): Promise<FlowResponse> {
+    const data = (payload.data ?? {}) as Record<string, string>;
+    const flowToken = (data.flow_token || payload.flow_token) as string | undefined;
 
     if (!flowToken) {
-      return { action: 'error', error: 'Missing flow_token' };
+      return { data: { error_message: 'Missing flow_token' } };
     }
 
     let ctx: FlowTokenPayload;
     try {
       ctx = this.decodeFlowToken(flowToken);
     } catch {
-      return { action: 'error', error: 'Invalid flow_token' };
+      return { data: { error_message: 'Invalid session' } };
     }
 
     if (Date.now() - ctx.iat > 15 * 60 * 1000) {
-      return { action: 'error', error: 'Session expired. Please try again.' };
+      return { data: { error_message: 'Session expired. Please try again.' } };
     }
 
     const name = (data.item_name ?? '').trim();
@@ -119,10 +208,10 @@ export class FlowsService {
       errors.item_quantity = 'Quantity must be 1–10';
 
     if (Object.keys(errors).length > 0) {
-      return { action: 'data_exchange', error: errors, data: body.data };
+      return { data: { ...data, error_message: Object.values(errors).join('. ') } };
     }
 
-    // Build update
+    // Update DB
     const updateData: Record<string, unknown> = {};
     if (name) updateData.name = name;
     if (!isNaN(price) && price > 0) updateData.estimatedPrice = price;
@@ -134,17 +223,16 @@ export class FlowsService {
         where: { id: ctx.itemId },
         data: updateData,
       });
+      this.logger.log(
+        `Flow edit saved: item=${ctx.itemId} name="${name}" price=${price} qty=${quantity}`,
+      );
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
-      this.logger.error(`Failed to update item ${ctx.itemId}: ${msg}`);
-      return { action: 'error', error: 'Could not save changes. Please try again.' };
+      this.logger.error(`Flow update failed: ${msg}`);
+      return { data: { error_message: 'Could not save. Please try again.' } };
     }
 
-    this.logger.log(
-      `Flow edit: item=${ctx.itemId} name="${name}" price=${price} qty=${quantity}`,
-    );
-
-    // Fetch updated item for SUCCESS screen data
+    // Fetch updated item for SUCCESS screen
     const item = await this.prisma.orderItem.findUnique({
       where: { id: ctx.itemId },
     });
@@ -161,13 +249,11 @@ export class FlowsService {
 
   // ── Token encoding/decoding ──────────────────────────────────────
 
-  /** Encode item context into an opaque token passed through the flow */
   encodeFlowToken(ctx: Omit<FlowTokenPayload, 'iat' | 'v'>): string {
     const payload: FlowTokenPayload = { ...ctx, v: 1, iat: Date.now() };
     return Buffer.from(JSON.stringify(payload)).toString('base64url');
   }
 
-  /** Decode and validate a flow token. Throws on malformed tokens. */
   decodeFlowToken(token: string): FlowTokenPayload {
     let payload: unknown;
     try {

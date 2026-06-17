@@ -1857,73 +1857,45 @@ export class WhatsAppService {
   }
 
   // ── Flow completion handler ──────────────────────────────────────
+  // Note: the actual DB update happens in FlowsService.data_exchange.
+  // The webhook arrives AFTER the endpoint already saved changes.
+  // This handler sends confirmation + refreshes the view.
 
   private async handleFlowCompletion(
     from: string,
     flow: FlowCompletionPayload,
     phoneNumberId?: string,
   ): Promise<void> {
-    const { token, response } = flow;
-    let ctx: { action: string; itemId: string; phone: string };
+    const { token } = flow;
 
+    let ctx: { action: string; itemId: string; phone: string };
     try {
       ctx = this.flowsService.decodeFlowToken(token);
     } catch {
       this.logger.warn(`Flow completion with invalid token from ${from}`);
-      await this.sendText(from, '⚠️ Invalid session. Please try editing again.', phoneNumberId);
-      return;
+      return; // Data was already saved; just skip confirmation
     }
 
-    // Verify the phone number matches to prevent cross-user edits
     if (ctx.phone !== from) {
-      this.logger.warn(`Flow token phone mismatch: expected ${ctx.phone}, got ${from}`);
-      await this.sendText(from, '⚠️ Session mismatch. Please try again.', phoneNumberId);
+      this.logger.warn(`Flow token phone mismatch`);
       return;
     }
 
-    const name = (response.item_name ?? '').trim();
-    const priceStr = (response.item_price ?? '').trim();
-    const quantityStr = (response.item_quantity ?? '').trim();
-    const price = priceStr ? parseFloat(priceStr) : NaN;
-    const quantity = quantityStr ? parseInt(quantityStr, 10) : NaN;
-
-    const updateData: Record<string, unknown> = {};
-    if (name) updateData.name = name;
-    if (!isNaN(price) && price > 0) updateData.estimatedPrice = price;
-    if (!isNaN(quantity) && quantity >= 1 && quantity <= 10) updateData.quantity = quantity;
-
-    if (Object.keys(updateData).length === 0) {
-      await this.sendText(from, '⚠️ No changes detected. Nothing was updated.', phoneNumberId);
-      return;
-    }
-
-    try {
-      await this.prisma.orderItem.update({
-        where: { id: ctx.itemId },
-        data: updateData,
-      });
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : String(err);
-      this.logger.error(`Flow completion: failed to update item ${ctx.itemId}: ${msg}`);
-      await this.sendText(from, '⚠️ Could not save changes. The item may have been deleted.', phoneNumberId);
-      return;
-    }
-
-    // Build confirmation
-    const changes: string[] = [];
-    if (name) changes.push(`📝 ${name}`);
-    if (!isNaN(price) && price > 0) changes.push(`💰 ₹${price}`);
-    if (!isNaN(quantity) && quantity > 0) changes.push(`🔢 Qty: ${quantity}`);
-    await this.sendText(from, `✅ Updated: ${changes.join(', ')}`, phoneNumberId);
-
-    // Resend correct view (packing slip for seller, order review for buyer)
+    // Fetch the already-updated item
     const item = await this.prisma.orderItem.findUnique({
       where: { id: ctx.itemId },
       include: { order: { include: { items: true } } },
     });
-    if (item) {
-      await this.resendAfterEdit(from, item.orderId, phoneNumberId);
-    }
+
+    if (!item) return;
+
+    await this.sendText(
+      from,
+      `✅ Updated: ${item.name} — ₹${item.estimatedPrice ?? '?'} x ${item.quantity}`,
+      phoneNumberId,
+    );
+
+    await this.resendAfterEdit(from, item.orderId, phoneNumberId);
   }
 
   // ── Media handling ────────────────────────────────────────────────

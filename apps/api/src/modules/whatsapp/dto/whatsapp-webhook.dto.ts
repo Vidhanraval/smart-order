@@ -3,7 +3,7 @@
 export interface FlowCompletionPayload {
   id: string; // Flow ID from Meta
   token: string; // flow_token we sent
-  response: Record<string, string>; // user-submitted form data
+  response?: Record<string, string>; // user-submitted form data (from SUCCESS screen)
 }
 
 // ── WhatsApp message ──────────────────────────────────────────────

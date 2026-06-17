@@ -1,6 +1,6 @@
-import { Controller, Post, Get, Body, HttpCode, Logger } from '@nestjs/common';
+import { Controller, Post, Get, Body, Res, HttpCode, Logger } from '@nestjs/common';
+import { Response } from 'express';
 import { FlowsService } from './flows.service';
-import { FlowDataExchangeRequest, FlowDataExchangeResponse } from './dto/flows.dto';
 
 @Controller('flows')
 export class FlowsController {
@@ -11,20 +11,23 @@ export class FlowsController {
   @Post('data-exchange')
   @HttpCode(200)
   async dataExchange(
-    @Body() body: FlowDataExchangeRequest,
-  ): Promise<FlowDataExchangeResponse> {
-    this.logger.log(`Flow data-exchange: action=${body.action}`);
+    @Body() body: { encrypted_flow_data: string; encrypted_aes_key: string; initial_vector: string },
+    @Res() res: Response,
+  ): Promise<void> {
+    this.logger.log('Flow data-exchange request received');
     try {
-      return await this.flowsService.handleDataExchange(body);
+      const encryptedResponse = await this.flowsService.handleEncryptedRequest(body);
+      res.setHeader('Content-Type', 'text/plain');
+      res.send(encryptedResponse);
     } catch (error: unknown) {
       const msg = error instanceof Error ? error.message : String(error);
       this.logger.error(`Flow data-exchange error: ${msg}`);
-      return { action: 'error', error: 'Internal server error' };
+      res.status(421).send('Decryption failed');
     }
   }
 
   @Get('health')
   health() {
-    return { status: 'ok', message: 'Flows data-exchange endpoint is live' };
+    return { status: 'ok' };
   }
 }

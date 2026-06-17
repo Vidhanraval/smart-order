@@ -1,23 +1,3 @@
-// ── Request Meta sends to our data-exchange endpoint ──────────────
-
-export interface FlowDataExchangeRequest {
-  action: 'INIT' | 'data_exchange' | 'ping';
-  data?: Record<string, unknown>;
-  version?: string;
-  screen?: string;
-  flow_token?: string;
-}
-
-// ── Response we return to Meta ────────────────────────────────────
-
-export interface FlowDataExchangeResponse {
-  action?: 'INIT' | 'data_exchange' | 'error';
-  data?: Record<string, unknown>;
-  error?: Record<string, string> | string;
-  screen?: string;
-  version?: string;
-}
-
 // ── Payload inside a completed flow webhook message ────────────────
 
 export interface FlowCompletionPayload {
