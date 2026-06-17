@@ -1,7 +1,7 @@
 // ── Request Meta sends to our data-exchange endpoint ──────────────
 
 export interface FlowDataExchangeRequest {
-  action: 'INIT' | 'data_exchange';
+  action: 'INIT' | 'data_exchange' | 'ping';
   data?: Record<string, unknown>;
   version?: string;
   screen?: string;
