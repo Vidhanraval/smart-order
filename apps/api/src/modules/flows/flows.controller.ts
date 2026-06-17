@@ -1,4 +1,4 @@
-import { Controller, Post, Get, Body, HttpCode, Header, Logger } from '@nestjs/common';
+import { Controller, Post, Get, Body, HttpCode, Header, Logger, HttpException } from '@nestjs/common';
 import { FlowsService } from './flows.service';
 
 @Controller('flows')
@@ -18,7 +18,11 @@ export class FlowsController {
   async handleRootFlowRequest(
     @Body() body: { encrypted_flow_data: string; encrypted_aes_key: string; initial_vector: string },
   ): Promise<string> {
-    return this.flowsService.handleEncryptedRequest(body);
+    try {
+      return await this.flowsService.handleEncryptedRequest(body);
+    } catch {
+      throw new HttpException('Decryption failed', 421);
+    }
   }
 
   @Post('data-exchange')
@@ -27,6 +31,10 @@ export class FlowsController {
   async handleEncryptedRequest(
     @Body() body: { encrypted_flow_data: string; encrypted_aes_key: string; initial_vector: string },
   ): Promise<string> {
-    return this.flowsService.handleEncryptedRequest(body);
+    try {
+      return await this.flowsService.handleEncryptedRequest(body);
+    } catch {
+      throw new HttpException('Decryption failed', 421);
+    }
   }
 }
