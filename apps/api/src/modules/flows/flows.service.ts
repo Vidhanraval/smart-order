@@ -24,7 +24,7 @@ export class FlowsService {
     this.logger.log(`Flow data-exchange: action=${body.action}`);
 
     // Meta health-check ping
-    if (body.action === 'ping') {
+    if ((body.action as string) === 'ping') {
       return { data: { status: 'active' } };
     }
     if (body.action === 'INIT') {
