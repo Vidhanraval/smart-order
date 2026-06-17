@@ -70,3 +70,5 @@ pnpm-debug.log*
 # Misc
 .DS_Store
 *.pem
+private_key.pem
+public_key.pem
