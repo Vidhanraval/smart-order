@@ -1,7 +1,15 @@
 {
   "version": "7.3",
   "data_api_version": "3.0",
-  "routing_model": {},
+  "routing_model": {
+    "EDIT_ITEM": {
+      "actions": {
+        "data_exchange": [
+          "SUCCESS"
+        ]
+      }
+    }
+  },
   "screens": [
     {
       "id": "EDIT_ITEM",
@@ -134,6 +142,10 @@
           {
             "type": "TextBody",
             "text": "Quantity: {{data.item_quantity}}"
+          },
+          {
+            "type": "Footer",
+            "label": "Done"
           }
         ]
       }
