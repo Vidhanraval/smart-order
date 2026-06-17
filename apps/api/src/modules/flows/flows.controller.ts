@@ -8,6 +8,23 @@ export class FlowsController {
 
   constructor(private readonly flowsService: FlowsService) {}
 
+  @Post()
+  async handleRootFlowRequest(
+    @Body() body: { encrypted_flow_data: string; encrypted_aes_key: string; initial_vector: string },
+    @Res() res: Response,
+  ): Promise<void> {
+    this.logger.log('Flow root request received');
+    try {
+      const encryptedResponse = await this.flowsService.handleEncryptedRequest(body);
+      res.setHeader('Content-Type', 'text/plain');
+      res.send(encryptedResponse);
+    } catch (error: unknown) {
+      const msg = error instanceof Error ? error.message : String(error);
+      this.logger.error(`Flow root error: ${msg}`);
+      res.status(421).send('Decryption failed');
+    }
+  }
+
   @Post('data-exchange')
   @HttpCode(200)
   async dataExchange(
