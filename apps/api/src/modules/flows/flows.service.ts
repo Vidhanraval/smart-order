@@ -55,7 +55,7 @@ export class FlowsService {
         break;
       default:
         this.logger.warn(`Unknown flow action: ${decrypted.action}`);
-        response = { data: { error: 'Unknown action' } };
+        response = { screen: 'EDIT_ITEM', data: { error_message: 'Unknown action' } };
     }
 
     // 3. Encrypt and return response
@@ -140,19 +140,19 @@ export class FlowsService {
 
     if (!flowToken) {
       this.logger.warn('INIT with no flow_token');
-      return { data: { error_message: 'Missing flow_token' } };
+      return { screen: 'EDIT_ITEM', data: { error_message: 'Missing flow_token' } };
     }
 
     let ctx: FlowTokenPayload;
     try {
       ctx = this.decodeFlowToken(flowToken);
     } catch {
-      return { data: { error_message: 'Invalid session' } };
+      return { screen: 'EDIT_ITEM', data: { error_message: 'Invalid session' } };
     }
 
     // Expire after 15 minutes
     if (Date.now() - ctx.iat > 15 * 60 * 1000) {
-      return { data: { error_message: 'Session expired. Please try again.' } };
+      return { screen: 'EDIT_ITEM', data: { error_message: 'Session expired. Please try again.' } };
     }
 
     const item = await this.prisma.orderItem.findUnique({
@@ -160,7 +160,7 @@ export class FlowsService {
     });
 
     if (!item) {
-      return { data: { error_message: 'Item not found.' } };
+      return { screen: 'EDIT_ITEM', data: { error_message: 'Item not found.' } };
     }
 
     return {
@@ -179,18 +179,18 @@ export class FlowsService {
     const flowToken = (data.flow_token || payload.flow_token) as string | undefined;
 
     if (!flowToken) {
-      return { data: { error_message: 'Missing flow_token' } };
+      return { screen: 'EDIT_ITEM', data: { error_message: 'Missing flow_token' } };
     }
 
     let ctx: FlowTokenPayload;
     try {
       ctx = this.decodeFlowToken(flowToken);
     } catch {
-      return { data: { error_message: 'Invalid session' } };
+      return { screen: 'EDIT_ITEM', data: { error_message: 'Invalid session' } };
     }
 
     if (Date.now() - ctx.iat > 15 * 60 * 1000) {
-      return { data: { error_message: 'Session expired. Please try again.' } };
+      return { screen: 'EDIT_ITEM', data: { error_message: 'Session expired. Please try again.' } };
     }
 
     const name = (data.item_name ?? '').trim();
@@ -208,7 +208,7 @@ export class FlowsService {
       errors.item_quantity = 'Quantity must be 1–10';
 
     if (Object.keys(errors).length > 0) {
-      return { data: { ...data, error_message: Object.values(errors).join('. ') } };
+      return { screen: 'EDIT_ITEM', data: { ...data, error_message: Object.values(errors).join('. ') } };
     }
 
     // Update DB
@@ -229,7 +229,7 @@ export class FlowsService {
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       this.logger.error(`Flow update failed: ${msg}`);
-      return { data: { error_message: 'Could not save. Please try again.' } };
+      return { screen: 'EDIT_ITEM', data: { error_message: 'Could not save. Please try again.' } };
     }
 
     // Fetch updated item for SUCCESS screen

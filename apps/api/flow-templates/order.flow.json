@@ -1,0 +1,242 @@
+{
+  "version": "7.3",
+  "data_api_version": "3.0",
+  "routing_model": {},
+  "screens": [
+    {
+      "id": "WELCOME",
+      "title": "SmartOrder",
+      "terminal": false,
+      "data": {},
+      "layout": {
+        "type": "SingleColumnLayout",
+        "children": [
+          {
+            "type": "TextHeading",
+            "text": "Welcome to SmartOrder 👋"
+          },
+          {
+            "type": "TextBody",
+            "text": "Place your order in a few taps"
+          },
+          {
+            "type": "Footer",
+            "label": "Start Order",
+            "on-click-action": {
+              "name": "data_exchange",
+              "next": { "type": "screen", "name": "CATEGORY" }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "CATEGORY",
+      "title": "Choose Category",
+      "terminal": false,
+      "data": {
+        "category": {
+          "type": "string",
+          "label": "Category",
+          "required": true
+        }
+      },
+      "layout": {
+        "type": "SingleColumnLayout",
+        "children": [
+          {
+            "type": "TextHeading",
+            "text": "What would you like?"
+          },
+          {
+            "type": "RadioButtonsGroup",
+            "name": "category",
+            "label": "Category",
+            "required": true,
+            "data-source": "{{data.categories}}"
+          },
+          {
+            "type": "Footer",
+            "label": "Continue",
+            "on-click-action": {
+              "name": "data_exchange",
+              "next": { "type": "screen", "name": "PRODUCT" }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "PRODUCT",
+      "title": "Select Product",
+      "terminal": false,
+      "data": {
+        "product": {
+          "type": "string",
+          "label": "Product",
+          "required": true
+        }
+      },
+      "layout": {
+        "type": "SingleColumnLayout",
+        "children": [
+          {
+            "type": "TextHeading",
+            "text": "Select your item"
+          },
+          {
+            "type": "RadioButtonsGroup",
+            "name": "product",
+            "label": "Product",
+            "required": true,
+            "data-source": "{{data.products}}"
+          },
+          {
+            "type": "Footer",
+            "label": "Continue",
+            "on-click-action": {
+              "name": "data_exchange",
+              "next": { "type": "screen", "name": "CUSTOMIZE" }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "CUSTOMIZE",
+      "title": "Customize",
+      "terminal": false,
+      "data": {
+        "size": {
+          "type": "string",
+          "label": "Size",
+          "required": true
+        },
+        "quantity": {
+          "type": "string",
+          "label": "Quantity",
+          "required": true
+        }
+      },
+      "layout": {
+        "type": "SingleColumnLayout",
+        "children": [
+          {
+            "type": "TextHeading",
+            "text": "Customize your order"
+          },
+          {
+            "type": "RadioButtonsGroup",
+            "name": "size",
+            "label": "Size",
+            "required": true,
+            "data-source": "{{data.sizes}}"
+          },
+          {
+            "type": "Dropdown",
+            "name": "quantity",
+            "label": "Quantity",
+            "required": true,
+            "data-source": "{{data.quantities}}"
+          },
+          {
+            "type": "Footer",
+            "label": "Continue",
+            "on-click-action": {
+              "name": "data_exchange",
+              "next": { "type": "screen", "name": "CUSTOMER" }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "CUSTOMER",
+      "title": "Your Details",
+      "terminal": false,
+      "data": {
+        "customer_name": {
+          "type": "string",
+          "label": "Your Name",
+          "required": true,
+          "max-chars": 60
+        },
+        "customer_phone": {
+          "type": "string",
+          "label": "Phone Number",
+          "required": true,
+          "max-chars": 15
+        }
+      },
+      "layout": {
+        "type": "SingleColumnLayout",
+        "children": [
+          {
+            "type": "TextHeading",
+            "text": "Your Details"
+          },
+          {
+            "type": "TextInput",
+            "name": "customer_name",
+            "label": "Your Name",
+            "required": true
+          },
+          {
+            "type": "TextInput",
+            "name": "customer_phone",
+            "label": "Phone Number",
+            "required": true,
+            "input-type": "tel"
+          },
+          {
+            "type": "Footer",
+            "label": "Review Order",
+            "on-click-action": {
+              "name": "data_exchange",
+              "next": { "type": "screen", "name": "SUMMARY" }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "SUMMARY",
+      "title": "Order Summary",
+      "terminal": true,
+      "data": {
+        "summary_text": {
+          "type": "string",
+          "label": "Summary"
+        },
+        "total": {
+          "type": "string",
+          "label": "Total"
+        }
+      },
+      "layout": {
+        "type": "SingleColumnLayout",
+        "children": [
+          {
+            "type": "TextHeading",
+            "text": "Order Summary"
+          },
+          {
+            "type": "TextBody",
+            "text": "{{data.summary_text}}"
+          },
+          {
+            "type": "TextHeading",
+            "text": "Total: ₹{{data.total}}"
+          },
+          {
+            "type": "Footer",
+            "label": "Place Order",
+            "on-click-action": {
+              "name": "complete"
+            }
+          }
+        ]
+      }
+    }
+  ]
+}
