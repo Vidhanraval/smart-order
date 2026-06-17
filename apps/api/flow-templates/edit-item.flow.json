@@ -1,12 +1,12 @@
 {
   "version": "7.3",
-  "data_api_version": "3.0",
+  "data_api_version": "2.0",
   "routing_model": {},
   "screens": [
     {
       "id": "EDIT_ITEM",
       "title": "Edit Item",
-      "terminal": true,
+      "terminal": false,
       "data": {
         "item_name": {
           "type": "string",
@@ -91,6 +91,49 @@
             "on-click-action": {
               "name": "data_exchange"
             }
+          }
+        ]
+      }
+    },
+    {
+      "id": "SUCCESS",
+      "title": "Saved!",
+      "terminal": true,
+      "data": {
+        "item_name": {
+          "type": "string",
+          "label": "Updated Item",
+          "__example__": "Atta"
+        },
+        "item_price": {
+          "type": "string",
+          "label": "Price",
+          "__example__": "60"
+        },
+        "item_quantity": {
+          "type": "string",
+          "label": "Quantity",
+          "__example__": "2"
+        }
+      },
+      "layout": {
+        "type": "SingleColumnLayout",
+        "children": [
+          {
+            "type": "TextHeading",
+            "text": "Changes Saved"
+          },
+          {
+            "type": "TextBody",
+            "text": "Item: {{data.item_name}}"
+          },
+          {
+            "type": "TextBody",
+            "text": "Price: ₹{{data.item_price}}"
+          },
+          {
+            "type": "TextBody",
+            "text": "Quantity: {{data.item_quantity}}"
           }
         ]
       }

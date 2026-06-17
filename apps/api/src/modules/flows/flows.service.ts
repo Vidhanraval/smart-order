@@ -144,9 +144,18 @@ export class FlowsService {
       `Flow edit: item=${ctx.itemId} name="${name}" price=${price} qty=${quantity}`,
     );
 
+    // Fetch updated item for SUCCESS screen data
+    const item = await this.prisma.orderItem.findUnique({
+      where: { id: ctx.itemId },
+    });
+
     return {
-      action: 'data_exchange',
-      data: { success: true, item_id: ctx.itemId },
+      screen: 'SUCCESS',
+      data: {
+        item_name: item?.name ?? name,
+        item_price: item?.estimatedPrice?.toString() ?? priceStr,
+        item_quantity: item?.quantity.toString() ?? quantityStr,
+      },
     };
   }
 
