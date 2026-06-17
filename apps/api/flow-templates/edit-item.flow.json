@@ -2,13 +2,7 @@
   "version": "7.3",
   "data_api_version": "3.0",
   "routing_model": {
-    "EDIT_ITEM": {
-      "actions": {
-        "data_exchange": [
-          "SUCCESS"
-        ]
-      }
-    }
+    "EDIT_ITEM": ["SUCCESS"]
   },
   "screens": [
     {
@@ -145,7 +139,10 @@
           },
           {
             "type": "Footer",
-            "label": "Done"
+            "label": "Done",
+            "on-click-action": {
+              "name": "complete"
+            }
           }
         ]
       }
