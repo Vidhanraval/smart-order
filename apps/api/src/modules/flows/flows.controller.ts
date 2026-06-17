@@ -1,5 +1,4 @@
-import { Controller, Post, Get, Body, Res, HttpCode, Logger } from '@nestjs/common';
-import { Response } from 'express';
+import { Controller, Post, Get, Body, HttpCode, Header, Logger } from '@nestjs/common';
 import { FlowsService } from './flows.service';
 
 @Controller('flows')
@@ -8,43 +7,26 @@ export class FlowsController {
 
   constructor(private readonly flowsService: FlowsService) {}
 
+  @Get('health')
+  health() {
+    return { data: { status: 'active' } };
+  }
+
   @Post()
+  @HttpCode(200)
+  @Header('Content-Type', 'text/plain')
   async handleRootFlowRequest(
     @Body() body: { encrypted_flow_data: string; encrypted_aes_key: string; initial_vector: string },
-    @Res() res: Response,
-  ): Promise<void> {
-    this.logger.log('Flow root request received');
-    try {
-      const encryptedResponse = await this.flowsService.handleEncryptedRequest(body);
-      res.setHeader('Content-Type', 'text/plain');
-      res.send(encryptedResponse);
-    } catch (error: unknown) {
-      const msg = error instanceof Error ? error.message : String(error);
-      this.logger.error(`Flow root error: ${msg}`);
-      res.status(421).send('Decryption failed');
-    }
+  ): Promise<string> {
+    return this.flowsService.handleEncryptedRequest(body);
   }
 
   @Post('data-exchange')
   @HttpCode(200)
-  async dataExchange(
+  @Header('Content-Type', 'text/plain')
+  async handleEncryptedRequest(
     @Body() body: { encrypted_flow_data: string; encrypted_aes_key: string; initial_vector: string },
-    @Res() res: Response,
-  ): Promise<void> {
-    this.logger.log('Flow data-exchange request received');
-    try {
-      const encryptedResponse = await this.flowsService.handleEncryptedRequest(body);
-      res.setHeader('Content-Type', 'text/plain');
-      res.send(encryptedResponse);
-    } catch (error: unknown) {
-      const msg = error instanceof Error ? error.message : String(error);
-      this.logger.error(`Flow data-exchange error: ${msg}`);
-      res.status(421).send('Decryption failed');
-    }
-  }
-
-  @Get('health')
-  health() {
-    return { data: { status: 'active' } };
+  ): Promise<string> {
+    return this.flowsService.handleEncryptedRequest(body);
   }
 }
