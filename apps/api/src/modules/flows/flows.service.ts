@@ -176,7 +176,6 @@ export class FlowsService {
 
   private async handleDataExchange(payload: DecryptedPayload): Promise<FlowResponse> {
     const rawData = (payload.data ?? {}) as Record<string, unknown>;
-    this.logger.log(`Data exchange payload: ${JSON.stringify(payload)}`);
 
     // Extract flow_token — may be in data.flow_token or top-level payload.flow_token
     const flowToken = (rawData.flow_token || payload.flow_token) as string | undefined;
@@ -229,18 +228,6 @@ export class FlowsService {
       errors.item_quantity = 'Quantity must be 1–10';
 
     if (Object.keys(errors).length > 0) {
-      // Debug: include payload info so we can see what Meta sends
-      const payloadKeys = JSON.stringify(Object.keys(payload));
-      const dataKeys = payload.data ? JSON.stringify(Object.keys(payload.data as object)) : 'no data key';
-      const topKeys = Object.entries(payload)
-        .filter(([, v]) => typeof v === 'string')
-        .map(([k]) => k);
-      this.logger.error(
-        `Data exchange: payload keys=${payloadKeys}, data keys=${dataKeys}, ` +
-        `top string keys=[${topKeys.join(',')}], ` +
-        `found form fields=[${Object.keys(formData).join(',')}], ` +
-        `raw payload=${JSON.stringify(payload).substring(0, 500)}`,
-      );
       return {
         screen: 'EDIT_ITEM',
         data: {
@@ -248,7 +235,7 @@ export class FlowsService {
           item_price: priceStr || formData.item_price || '',
           item_quantity: quantityStr || formData.item_quantity || '',
           flow_token: flowToken,
-          error_message: `Debug: data keys=${dataKeys}, form keys=[${Object.keys(formData).join(',')}], top keys=[${topKeys.join(',')}]`,
+          error_message: Object.values(errors).join('. '),
         },
       };
     }
