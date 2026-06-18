@@ -168,6 +168,7 @@ export class FlowsService {
         item_name: item.name,
         item_price: item.estimatedPrice?.toString() ?? '',
         item_quantity: item.quantity.toString(),
+        flow_token: flowToken,
       },
     };
   }
