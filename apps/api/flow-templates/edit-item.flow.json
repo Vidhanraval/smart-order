@@ -137,19 +137,11 @@
           "children": [
             {
               "type": "TextHeading",
-              "text": "Changes Saved"
+              "text": "Changes Saved!"
             },
             {
               "type": "TextBody",
-              "text": "Item: {{data.item_name}}"
-            },
-            {
-              "type": "TextBody",
-              "text": "Price: ₹{{data.item_price}}"
-            },
-            {
-              "type": "TextBody",
-              "text": "Quantity: {{data.item_quantity}}"
+              "text": "Your changes have been saved successfully."
             },
             {
               "type": "Footer",
