@@ -1815,20 +1815,40 @@ export class WhatsAppService {
       const resolvedPhoneNumberId = phoneNumberId || this.configService.get<string>('whatsapp.phoneNumberId');
       const accessToken = this.configService.get<string>('whatsapp.accessToken');
 
+      const flowActionPayload: { screen: string; data?: string } = {
+        screen: 'EDIT_ITEM',
+      };
+
+      // If we have data (prefilled fields + flow_token), pass it to the first screen
+      if (data && Object.keys(data).length > 0) {
+        flowActionPayload.data = JSON.stringify(data);
+      }
+
+      const flowParams: Record<string, unknown> = {
+        flow_message_version: '3',
+        flow_id: flowId,
+        flow_cta: cta,
+        flow_token: (data?.flow_token as string) ?? 'unused',
+        flow_action: 'navigate',
+        flow_action_payload: flowActionPayload,
+      };
+
       const { data: response } = await axios.post(
         `https://graph.facebook.com/v22.0/${resolvedPhoneNumberId}/messages`,
         {
           messaging_product: 'whatsapp',
           recipient_type: 'individual',
           to,
-          type: 'flow',
-          flow: {
-            id: flowId,
-            cta,
+          type: 'interactive',
+          interactive: {
+            type: 'flow',
             header: { type: 'text', text: headerText },
             body: { text: bodyText },
             footer: { text: 'SmartOrder' },
-            data,
+            action: {
+              name: 'flow',
+              parameters: flowParams,
+            },
           },
         },
         { headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' } },
