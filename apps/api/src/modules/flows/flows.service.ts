@@ -182,6 +182,7 @@ export class FlowsService {
 
     // Extract flow_token — may be in data.flow_token or top-level payload.flow_token
     const flowToken = (rawData.flow_token || payload.flow_token) as string | undefined;
+    this.logger.log(`Flow token from payload: prefix=${flowToken?.substring(0, 20)}... len=${flowToken?.length}`);
 
     if (!flowToken) {
       return { screen: 'EDIT_ITEM', data: { error_message: 'Missing flow_token' } };
@@ -319,8 +320,21 @@ export class FlowsService {
 
   decodeFlowToken(token: string): FlowTokenPayload {
     let payload: unknown;
+    // Try base64url first, then base64, then plain JSON
+    let json: string;
     try {
-      const json = Buffer.from(token, 'base64url').toString('utf8');
+      json = Buffer.from(token, 'base64url').toString('utf8');
+      if (!json.startsWith('{')) throw new Error('not json');
+    } catch {
+      try {
+        json = Buffer.from(token, 'base64').toString('utf8');
+        if (!json.startsWith('{')) throw new Error('not json');
+      } catch {
+        // Maybe Meta passes it as-is
+        json = token;
+      }
+    }
+    try {
       payload = JSON.parse(json);
     } catch {
       throw new BadRequestException('Invalid flow_token encoding');
