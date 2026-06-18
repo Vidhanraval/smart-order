@@ -267,42 +267,33 @@ export class FlowsService {
   // ── Form data extraction ─────────────────────────────────────────
 
   /**
-   * Meta may send form data flat (data.item_name) or nested under
-   * the form name (data.edit_form.item_name). This extracts values
-   * from whichever structure Meta sends.
+   * Meta may send form data in various nested structures:
+   *   Flat:     { item_name: "...", item_price: "...", ... }
+   *   Form:     { edit_form: { item_name: "...", ... } }
+   *   Screen:   { EDIT_ITEM: { edit_form: { item_name: "...", ... } } }
+   * This recursively searches all levels for the form field values.
    */
   private extractFormData(data: Record<string, unknown>): Record<string, string> {
-    // Exclude flow_token from form data search
     const skipKeys = new Set(['flow_token', 'screen', 'error_message']);
+    const result: Record<string, string> = {};
 
-    // Try flat structure first
-    if (typeof data.item_name === 'string') {
-      const result: Record<string, string> = {};
-      for (const [key, val] of Object.entries(data)) {
-        if (!skipKeys.has(key) && typeof val === 'string') {
-          result[key] = val;
-        }
-      }
-      return result;
-    }
+    const search = (obj: Record<string, unknown>) => {
+      for (const [key, val] of Object.entries(obj)) {
+        if (skipKeys.has(key)) continue;
 
-    // Try nested: look for a nested object that has item_name
-    for (const [key, val] of Object.entries(data)) {
-      if (skipKeys.has(key)) continue;
-      if (typeof val === 'object' && val !== null && !Array.isArray(val)) {
-        const nested = val as Record<string, unknown>;
-        if (typeof nested.item_name === 'string') {
-          const result: Record<string, string> = {};
-          for (const [nk, nv] of Object.entries(nested)) {
-            if (typeof nv === 'string') result[nk] = nv;
+        if (typeof val === 'string') {
+          // Only capture known form fields
+          if (key === 'item_name' || key === 'item_price' || key === 'item_quantity') {
+            result[key] = val;
           }
-          return result;
+        } else if (typeof val === 'object' && val !== null && !Array.isArray(val)) {
+          search(val as Record<string, unknown>);
         }
       }
-    }
+    };
 
-    // Fallback: return empty (will fail validation)
-    return {};
+    search(data);
+    return result;
   }
 
   // ── Token encoding/decoding ──────────────────────────────────────
