@@ -175,8 +175,11 @@ export class FlowsService {
   // ── data_exchange: user tapped "Save Changes" → validate + update ──
 
   private async handleDataExchange(payload: DecryptedPayload): Promise<FlowResponse> {
-    const data = (payload.data ?? {}) as Record<string, string>;
-    const flowToken = (data.flow_token || payload.flow_token) as string | undefined;
+    const rawData = (payload.data ?? {}) as Record<string, unknown>;
+    this.logger.log(`Data exchange payload: ${JSON.stringify(payload)}`);
+
+    // Extract flow_token — may be in data.flow_token or top-level payload.flow_token
+    const flowToken = (rawData.flow_token || payload.flow_token) as string | undefined;
 
     if (!flowToken) {
       return { screen: 'EDIT_ITEM', data: { error_message: 'Missing flow_token' } };
@@ -193,9 +196,14 @@ export class FlowsService {
       return { screen: 'EDIT_ITEM', data: { error_message: 'Session expired. Please try again.' } };
     }
 
-    const name = (data.item_name ?? '').trim();
-    const priceStr = (data.item_price ?? '').trim();
-    const quantityStr = (data.item_quantity ?? '').trim();
+    // Extract form values — Meta may send them flat (data.item_name)
+    // or nested under the form name (data.edit_form.item_name).
+    // Also handle the case where form data is at the top level of data.
+    const formData = this.extractFormData(rawData);
+
+    const name = (formData.item_name ?? '').trim();
+    const priceStr = (formData.item_price ?? '').trim();
+    const quantityStr = (formData.item_quantity ?? '').trim();
     const price = priceStr ? parseFloat(priceStr) : NaN;
     const quantity = quantityStr ? parseInt(quantityStr, 10) : NaN;
 
@@ -208,7 +216,16 @@ export class FlowsService {
       errors.item_quantity = 'Quantity must be 1–10';
 
     if (Object.keys(errors).length > 0) {
-      return { screen: 'EDIT_ITEM', data: { ...data, error_message: Object.values(errors).join('. ') } };
+      return {
+        screen: 'EDIT_ITEM',
+        data: {
+          item_name: name || formData.item_name || '',
+          item_price: priceStr || formData.item_price || '',
+          item_quantity: quantityStr || formData.item_quantity || '',
+          flow_token: flowToken,
+          error_message: Object.values(errors).join('. '),
+        },
+      };
     }
 
     // Update DB
@@ -245,6 +262,47 @@ export class FlowsService {
         item_quantity: item?.quantity.toString() ?? quantityStr,
       },
     };
+  }
+
+  // ── Form data extraction ─────────────────────────────────────────
+
+  /**
+   * Meta may send form data flat (data.item_name) or nested under
+   * the form name (data.edit_form.item_name). This extracts values
+   * from whichever structure Meta sends.
+   */
+  private extractFormData(data: Record<string, unknown>): Record<string, string> {
+    // Exclude flow_token from form data search
+    const skipKeys = new Set(['flow_token', 'screen', 'error_message']);
+
+    // Try flat structure first
+    if (typeof data.item_name === 'string') {
+      const result: Record<string, string> = {};
+      for (const [key, val] of Object.entries(data)) {
+        if (!skipKeys.has(key) && typeof val === 'string') {
+          result[key] = val;
+        }
+      }
+      return result;
+    }
+
+    // Try nested: look for a nested object that has item_name
+    for (const [key, val] of Object.entries(data)) {
+      if (skipKeys.has(key)) continue;
+      if (typeof val === 'object' && val !== null && !Array.isArray(val)) {
+        const nested = val as Record<string, unknown>;
+        if (typeof nested.item_name === 'string') {
+          const result: Record<string, string> = {};
+          for (const [nk, nv] of Object.entries(nested)) {
+            if (typeof nv === 'string') result[nk] = nv;
+          }
+          return result;
+        }
+      }
+    }
+
+    // Fallback: return empty (will fail validation)
+    return {};
   }
 
   // ── Token encoding/decoding ──────────────────────────────────────
