@@ -40,10 +40,9 @@ export class FlowsService {
   async handleEncryptedRequest(body: EncryptedRequest): Promise<string> {
     // 1. Decrypt the incoming request
     const { decrypted, aesKey, iv } = this.decryptRequest(body);
-    this.logger.log(`Flow request: action=${decrypted.action} screen=${decrypted.screen}`);
+    this.logger.log(`Flow: action=${decrypted.action} screen=${decrypted.screen}`);
 
     // 2. Process based on action
-    this.logger.log(`Flow: action=${decrypted.action} screen=${decrypted.screen} dataKeys=${decrypted.data ? Object.keys(decrypted.data).join(',') : 'none'}`);
     let response: FlowResponse;
     switch (decrypted.action) {
       case 'ping':
@@ -61,7 +60,7 @@ export class FlowsService {
     }
 
     // 3. Encrypt and return response
-    this.logger.log(`Flow response: screen=${response.screen} dataKeys=${response.data ? Object.keys(response.data).join(',') : 'none'}`);
+    this.logger.log(`Flow response: screen=${response.screen}`);
     return this.encryptResponse(response, aesKey, iv);
   }
 
@@ -179,15 +178,10 @@ export class FlowsService {
   // ── data_exchange: user tapped "Save Changes" → validate + update ──
 
   private async handleDataExchange(payload: DecryptedPayload): Promise<FlowResponse> {
-    return { screen: 'DONE', data: {} };
-  }
-
-  private async __handleDataExchange_ORIG(payload: DecryptedPayload): Promise<FlowResponse> {
     const rawData = (payload.data ?? {}) as Record<string, unknown>;
 
-    // Extract flow_token — may be in data.flow_token or top-level payload.flow_token
+    // flow_token comes from the payload (sent via data_exchange footer)
     const flowToken = (rawData.flow_token || payload.flow_token) as string | undefined;
-    this.logger.log(`Flow token from payload: prefix=${flowToken?.substring(0, 20)}... len=${flowToken?.length}`);
 
     if (!flowToken) {
       return { screen: 'EDIT_ITEM', data: { error_message: 'Missing flow_token' } };
@@ -204,22 +198,15 @@ export class FlowsService {
       return { screen: 'EDIT_ITEM', data: { error_message: 'Session expired. Please try again.' } };
     }
 
-    // Extract form values — Meta may send them in several ways:
-    //   1. Flat inside data:  payload.data.item_name
-    //   2. Nested:            payload.data.edit_form.item_name
-    //   3. Top-level:         payload.item_name (with payload.data absent)
-    //   4. Double-nested:     payload.data.EDIT_ITEM.edit_form.item_name
-    // Merge both payload.data and top-level payload keys for search.
+    // Extract form values from wherever Meta puts them
     const searchData: Record<string, unknown> = {
       ...(payload.data ?? {}),
     };
-    // Also copy top-level string values (form fields may arrive at payload root)
     for (const [key, val] of (Object.entries(payload) as [string, unknown][])) {
       if (typeof val === 'string' && !(key in searchData)) {
         searchData[key] = val;
       }
     }
-    // Also handle the case where form data is at the top level of data.
     const formData = this.extractFormData(searchData);
 
     const name = (formData.item_name ?? '').trim();
@@ -238,11 +225,13 @@ export class FlowsService {
 
     if (Object.keys(errors).length > 0) {
       return {
-        screen: 'SUCCESS',
+        screen: 'EDIT_ITEM',
         data: {
-          item_name: name || formData.item_name || 'test',
-          item_price: priceStr || formData.item_price || '99',
-          item_quantity: quantityStr || formData.item_quantity || '1',
+          item_name: name || formData.item_name || '',
+          item_price: priceStr || formData.item_price || '',
+          item_quantity: quantityStr || formData.item_quantity || '',
+          flow_token: flowToken,
+          error_message: Object.values(errors).join('. '),
         },
       };
     }
@@ -265,21 +254,18 @@ export class FlowsService {
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       this.logger.error(`Flow update failed: ${msg}`);
-      // TEMP: return SUCCESS anyway for testing
-      return { screen: 'SUCCESS', data: { item_name: name, item_price: priceStr, item_quantity: quantityStr } };
+      return { screen: 'EDIT_ITEM', data: { error_message: 'Could not save. Please try again.' } };
     }
 
-    // Fetch updated item for SUCCESS screen
-    const item = await this.prisma.orderItem.findUnique({
-      where: { id: ctx.itemId },
-    });
-
+    // Return to EDIT_ITEM with updated data + success message
     return {
-      screen: 'SUCCESS',
+      screen: 'EDIT_ITEM',
       data: {
-        item_name: item?.name ?? name,
-        item_price: item?.estimatedPrice?.toString() ?? priceStr,
-        item_quantity: item?.quantity.toString() ?? quantityStr,
+        item_name: name,
+        item_price: priceStr || formData.item_price || '',
+        item_quantity: quantityStr || formData.item_quantity || '1',
+        flow_token: flowToken,
+        error_message: '✅ Saved successfully!',
       },
     };
   }
@@ -287,10 +273,7 @@ export class FlowsService {
   // ── Form data extraction ─────────────────────────────────────────
 
   /**
-   * Meta may send form data in various nested structures:
-   *   Flat:     { item_name: "...", item_price: "...", ... }
-   *   Form:     { edit_form: { item_name: "...", ... } }
-   *   Screen:   { EDIT_ITEM: { edit_form: { item_name: "...", ... } } }
+   * Meta may send form data in various nested structures.
    * This recursively searches all levels for the form field values.
    */
   private extractFormData(data: Record<string, unknown>): Record<string, string> {
@@ -302,7 +285,6 @@ export class FlowsService {
         if (skipKeys.has(key)) continue;
 
         if (typeof val === 'string') {
-          // Only capture known form fields
           if (key === 'item_name' || key === 'item_price' || key === 'item_quantity') {
             result[key] = val;
           }
@@ -324,8 +306,6 @@ export class FlowsService {
   }
 
   decodeFlowToken(token: string): FlowTokenPayload {
-    let payload: unknown;
-    // Try base64url first, then base64, then plain JSON
     let json: string;
     try {
       json = Buffer.from(token, 'base64url').toString('utf8');
@@ -335,10 +315,11 @@ export class FlowsService {
         json = Buffer.from(token, 'base64').toString('utf8');
         if (!json.startsWith('{')) throw new Error('not json');
       } catch {
-        // Maybe Meta passes it as-is
         json = token;
       }
     }
+
+    let payload: unknown;
     try {
       payload = JSON.parse(json);
     } catch {

@@ -1,183 +1,143 @@
- {
-    "version": "7.3",
-    "data_api_version": "3.0",
-    "routing_model": {
-      "EDIT_ITEM": ["SUCCESS", "DONE"]
-    },
-    "screens": [
-      {
-        "id": "EDIT_ITEM",
-        "title": "Edit Item",
-        "terminal": false,
-        "data": {
-          "error_message": {
-            "type": "string",
-            "label": "Error",
-            "__example__": ""
-          },
-          "flow_token": {
-            "type": "string",
-            "label": "Token",
-            "__example__": "unused"
-          },
-          "item_name": {
-            "type": "string",
-            "label": "Item Name",
-            "required": true,
-            "max-chars": 80,
-            "default": "{{data.item_name}}",
-            "__example__": "Atta"
-          },
-          "item_price": {
-            "type": "string",
-            "label": "Price (₹)",
-            "required": false,
-            "input-type": "number",
-            "max-chars": 10,
-            "default": "{{data.item_price}}",
-            "__example__": "60"
-          },
-          "item_quantity": {
-            "type": "string",
-            "label": "Quantity",
-            "required": true,
-            "data-source": [
-              { "id": "1", "title": "1" },
-              { "id": "2", "title": "2" },
-              { "id": "3", "title": "3" },
-              { "id": "4", "title": "4" },
-              { "id": "5", "title": "5" },
-              { "id": "6", "title": "6" },
-              { "id": "7", "title": "7" },
-              { "id": "8", "title": "8" },
-              { "id": "9", "title": "9" },
-              { "id": "10", "title": "10" }
-            ],
-            "default": "{{data.item_quantity}}",
-            "__example__": "2"
-          }
+{
+  "version": "7.3",
+  "data_api_version": "3.0",
+  "routing_model": {
+    "EDIT_ITEM": ["SUCCESS"]
+  },
+  "screens": [
+    {
+      "id": "EDIT_ITEM",
+      "title": "Edit Item",
+      "terminal": false,
+      "data": {
+        "flow_token": {
+          "type": "string",
+          "label": "Token",
+          "__example__": "unused"
         },
-        "layout": {
-          "type": "SingleColumnLayout",
-          "children": [
-            {
-              "type": "TextBody",
-              "text": "{{data.error_message}}"
-            },
-            {
-              "type": "Form",
-              "name": "edit_form",
-              "children": [
-                {
-                  "type": "TextInput",
-                  "name": "item_name",
-                  "label": "Item Name",
-                  "required": true
-                },
-                {
-                  "type": "TextInput",
-                  "name": "item_price",
-                  "label": "Price (₹)",
-                  "required": false,
-                  "input-type": "number"
-                },
-                {
-                  "type": "Dropdown",
-                  "name": "item_quantity",
-                  "label": "Quantity",
-                  "required": true,
-                  "data-source": [
-                    { "id": "1", "title": "1" },
-                    { "id": "2", "title": "2" },
-                    { "id": "3", "title": "3" },
-                    { "id": "4", "title": "4" },
-                    { "id": "5", "title": "5" },
-                    { "id": "6", "title": "6" },
-                    { "id": "7", "title": "7" },
-                    { "id": "8", "title": "8" },
-                    { "id": "9", "title": "9" },
-                    { "id": "10", "title": "10" }
-                  ]
-                },
-                {
-                  "type": "Footer",
-                  "label": "Save Changes",
-                  "on-click-action": {
-                    "name": "data_exchange"
+        "error_message": {
+          "type": "string",
+          "label": "Status",
+          "__example__": ""
+        },
+        "item_name": {
+          "type": "string",
+          "label": "Item Name",
+          "required": true,
+          "max-chars": 80,
+          "default": "{{data.item_name}}",
+          "__example__": "Atta"
+        },
+        "item_price": {
+          "type": "string",
+          "label": "Price (₹)",
+          "required": false,
+          "input-type": "number",
+          "max-chars": 10,
+          "default": "{{data.item_price}}",
+          "__example__": "60"
+        },
+        "item_quantity": {
+          "type": "string",
+          "label": "Quantity",
+          "required": true,
+          "data-source": [
+            { "id": "1", "title": "1" },
+            { "id": "2", "title": "2" },
+            { "id": "3", "title": "3" },
+            { "id": "4", "title": "4" },
+            { "id": "5", "title": "5" },
+            { "id": "6", "title": "6" },
+            { "id": "7", "title": "7" },
+            { "id": "8", "title": "8" },
+            { "id": "9", "title": "9" },
+            { "id": "10", "title": "10" }
+          ],
+          "default": "{{data.item_quantity}}",
+          "__example__": "2"
+        }
+      },
+      "layout": {
+        "type": "SingleColumnLayout",
+        "children": [
+          {
+            "type": "TextBody",
+            "text": "{{data.error_message}}"
+          },
+          {
+            "type": "Form",
+            "name": "edit_form",
+            "children": [
+              {
+                "type": "TextInput",
+                "name": "item_name",
+                "label": "Item Name",
+                "required": true
+              },
+              {
+                "type": "TextInput",
+                "name": "item_price",
+                "label": "Price (₹)",
+                "required": false,
+                "input-type": "number"
+              },
+              {
+                "type": "Dropdown",
+                "name": "item_quantity",
+                "label": "Quantity",
+                "required": true,
+                "data-source": [
+                  { "id": "1", "title": "1" },
+                  { "id": "2", "title": "2" },
+                  { "id": "3", "title": "3" },
+                  { "id": "4", "title": "4" },
+                  { "id": "5", "title": "5" },
+                  { "id": "6", "title": "6" },
+                  { "id": "7", "title": "7" },
+                  { "id": "8", "title": "8" },
+                  { "id": "9", "title": "9" },
+                  { "id": "10", "title": "10" }
+                ]
+              },
+              {
+                "type": "Footer",
+                "label": "Save Changes",
+                "on-click-action": {
+                  "name": "data_exchange",
+                  "payload": {
+                    "item_name": "${form.item_name}",
+                    "item_price": "${form.item_price}",
+                    "item_quantity": "${form.item_quantity}",
+                    "flow_token": "${data.flow_token}"
                   }
                 }
-              ]
-            }
-          ]
-        }
-      },
-      {
-        "id": "SUCCESS",
-        "title": "Saved!",
-        "terminal": true,
-        "data": {
-          "item_name": {
-            "type": "string",
-            "label": "Updated Item",
-            "__example__": "Atta"
-          },
-          "item_price": {
-            "type": "string",
-            "label": "Price",
-            "__example__": "60"
-          },
-          "item_quantity": {
-            "type": "string",
-            "label": "Quantity",
-            "__example__": "2"
+              }
+            ]
           }
-        },
-        "layout": {
-          "type": "SingleColumnLayout",
-          "children": [
-            {
-              "type": "TextHeading",
-              "text": "Changes Saved!"
-            },
-            {
-              "type": "TextBody",
-              "text": "Your changes have been saved successfully."
-            },
-            {
-              "type": "Footer",
-              "label": "Done",
-              "on-click-action": {
-                "name": "complete"
-              }
-            }
-          ]
-        }
-      },
-      {
-        "id": "DONE",
-        "title": "Done!",
-        "terminal": true,
-        "data": {},
-        "layout": {
-          "type": "SingleColumnLayout",
-          "children": [
-            {
-              "type": "TextHeading",
-              "text": "All Done!"
-            },
-            {
-              "type": "TextBody",
-              "text": "Item updated successfully."
-            },
-            {
-              "type": "Footer",
-              "label": "Close",
-              "on-click-action": {
-                "name": "complete"
-              }
-            }
-          ]
-        }
+        ]
       }
-    ]
-  }
+    },
+    {
+      "id": "SUCCESS",
+      "title": "Saved!",
+      "terminal": true,
+      "data": {
+        "item_name": { "type": "string", "__example__": "Atta" },
+        "item_price": { "type": "string", "__example__": "60" },
+        "item_quantity": { "type": "string", "__example__": "2" }
+      },
+      "layout": {
+        "type": "SingleColumnLayout",
+        "children": [
+          { "type": "TextHeading", "text": "Changes Saved" },
+          { "type": "TextBody", "text": "Your changes have been saved." },
+          {
+            "type": "Footer",
+            "label": "Done",
+            "on-click-action": { "name": "complete" }
+          }
+        ]
+      }
+    }
+  ]
+}
