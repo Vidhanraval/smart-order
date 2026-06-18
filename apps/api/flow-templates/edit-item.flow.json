@@ -1,151 +1,151 @@
-{
-  "version": "7.3",
-  "data_api_version": "3.0",
-  "routing_model": {
-    "EDIT_ITEM": ["SUCCESS"]
-  },
-  "screens": [
-    {
-      "id": "EDIT_ITEM",
-      "title": "Edit Item",
-      "terminal": false,
-      "data": {
-        "item_name": {
-          "type": "string",
-          "label": "Item Name",
-          "required": true,
-          "max-chars": 80,
-          "default": "{{data.item_name}}",
-          "__example__": "Atta"
-        },
-        "item_price": {
-          "type": "string",
-          "label": "Price (₹)",
-          "required": false,
-          "input-type": "number",
-          "max-chars": 10,
-          "default": "{{data.item_price}}",
-          "__example__": "60"
-        },
-        "item_quantity": {
-          "type": "string",
-          "label": "Quantity",
-          "required": true,
-          "data-source": [
-            { "id": "1", "title": "1" },
-            { "id": "2", "title": "2" },
-            { "id": "3", "title": "3" },
-            { "id": "4", "title": "4" },
-            { "id": "5", "title": "5" },
-            { "id": "6", "title": "6" },
-            { "id": "7", "title": "7" },
-            { "id": "8", "title": "8" },
-            { "id": "9", "title": "9" },
-            { "id": "10", "title": "10" }
-          ],
-          "default": "{{data.item_quantity}}",
-          "__example__": "2"
-        }
-      },
-      "layout": {
-        "type": "SingleColumnLayout",
-        "children": [
-          {
-            "type": "Form",
-            "name": "edit_form",
-            "children": [
-              {
-                "type": "TextInput",
-                "name": "item_name",
-                "label": "Item Name",
-                "required": true
-              },
-              {
-                "type": "TextInput",
-                "name": "item_price",
-                "label": "Price (₹)",
-                "required": false,
-                "input-type": "number"
-              },
-              {
-                "type": "Dropdown",
-                "name": "item_quantity",
-                "label": "Quantity",
-                "required": true,
-                "data-source": [
-                  { "id": "1", "title": "1" },
-                  { "id": "2", "title": "2" },
-                  { "id": "3", "title": "3" },
-                  { "id": "4", "title": "4" },
-                  { "id": "5", "title": "5" },
-                  { "id": "6", "title": "6" },
-                  { "id": "7", "title": "7" },
-                  { "id": "8", "title": "8" },
-                  { "id": "9", "title": "9" },
-                  { "id": "10", "title": "10" }
-                ]
-              }
-            ]
-          },
-          {
-            "type": "Footer",
-            "label": "Save Changes",
-            "on-click-action": {
-              "name": "data_exchange"
-            }
-          }
-        ]
-      }
+ {
+    "version": "7.3",
+    "data_api_version": "3.0",
+    "routing_model": {
+      "EDIT_ITEM": ["SUCCESS"]
     },
-    {
-      "id": "SUCCESS",
-      "title": "Saved!",
-      "terminal": true,
-      "data": {
-        "item_name": {
-          "type": "string",
-          "label": "Updated Item",
-          "__example__": "Atta"
+    "screens": [
+      {
+        "id": "EDIT_ITEM",
+        "title": "Edit Item",
+        "terminal": false,
+        "data": {
+          "item_name": {
+            "type": "string",
+            "label": "Item Name",
+            "required": true,
+            "max-chars": 80,
+            "default": "{{data.item_name}}",
+            "__example__": "Atta"
+          },
+          "item_price": {
+            "type": "string",
+            "label": "Price (₹)",
+            "required": false,
+            "input-type": "number",
+            "max-chars": 10,
+            "default": "{{data.item_price}}",
+            "__example__": "60"
+          },
+          "item_quantity": {
+            "type": "string",
+            "label": "Quantity",
+            "required": true,
+            "data-source": [
+              { "id": "1", "title": "1" },
+              { "id": "2", "title": "2" },
+              { "id": "3", "title": "3" },
+              { "id": "4", "title": "4" },
+              { "id": "5", "title": "5" },
+              { "id": "6", "title": "6" },
+              { "id": "7", "title": "7" },
+              { "id": "8", "title": "8" },
+              { "id": "9", "title": "9" },
+              { "id": "10", "title": "10" }
+            ],
+            "default": "{{data.item_quantity}}",
+            "__example__": "2"
+          }
         },
-        "item_price": {
-          "type": "string",
-          "label": "Price",
-          "__example__": "60"
-        },
-        "item_quantity": {
-          "type": "string",
-          "label": "Quantity",
-          "__example__": "2"
+        "layout": {
+          "type": "SingleColumnLayout",
+          "children": [
+            {
+              "type": "Form",
+              "name": "edit_form",
+              "children": [
+                {
+                  "type": "TextInput",
+                  "name": "item_name",
+                  "label": "Item Name",
+                  "required": true
+                },
+                {
+                  "type": "TextInput",
+                  "name": "item_price",
+                  "label": "Price (₹)",
+                  "required": false,
+                  "input-type": "number"
+                },
+                {
+                  "type": "Dropdown",
+                  "name": "item_quantity",
+                  "label": "Quantity",
+                  "required": true,
+                  "data-source": [
+                    { "id": "1", "title": "1" },
+                    { "id": "2", "title": "2" },
+                    { "id": "3", "title": "3" },
+                    { "id": "4", "title": "4" },
+                    { "id": "5", "title": "5" },
+                    { "id": "6", "title": "6" },
+                    { "id": "7", "title": "7" },
+                    { "id": "8", "title": "8" },
+                    { "id": "9", "title": "9" },
+                    { "id": "10", "title": "10" }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "Footer",
+              "label": "Save Changes",
+              "on-click-action": {
+                "name": "data_exchange"
+              }
+            }
+          ]
         }
       },
-      "layout": {
-        "type": "SingleColumnLayout",
-        "children": [
-          {
-            "type": "TextHeading",
-            "text": "Changes Saved"
+      {
+        "id": "SUCCESS",
+        "title": "Saved!",
+        "terminal": true,
+        "data": {
+          "item_name": {
+            "type": "string",
+            "label": "Updated Item",
+            "__example__": "Atta"
           },
-          {
-            "type": "TextBody",
-            "text": "Item: {{data.item_name}}"
+          "item_price": {
+            "type": "string",
+            "label": "Price",
+            "__example__": "60"
           },
-          {
-            "type": "TextBody",
-            "text": "Price: ₹{{data.item_price}}"
-          },
-          {
-            "type": "TextBody",
-            "text": "Quantity: {{data.item_quantity}}"
-          },
-          {
-            "type": "Footer",
-            "label": "Done",
-            "on-click-action": {
-              "name": "complete"
-            }
+          "item_quantity": {
+            "type": "string",
+            "label": "Quantity",
+            "__example__": "2"
           }
-        ]
+        },
+        "layout": {
+          "type": "SingleColumnLayout",
+          "children": [
+            {
+              "type": "TextHeading",
+              "text": "Changes Saved"
+            },
+            {
+              "type": "TextBody",
+              "text": "Item: {{data.item_name}}"
+            },
+            {
+              "type": "TextBody",
+              "text": "Price: ₹{{data.item_price}}"
+            },
+            {
+              "type": "TextBody",
+              "text": "Quantity: {{data.item_quantity}}"
+            },
+            {
+              "type": "Footer",
+              "label": "Done",
+              "on-click-action": {
+                "name": "complete"
+              }
+            }
+          ]
+        }
       }
-    }
-  ]
-}
+    ]
+  }
