@@ -179,7 +179,7 @@ export class FlowsService {
   // ── data_exchange: user tapped "Save Changes" → validate + update ──
 
   private async handleDataExchange(payload: DecryptedPayload): Promise<FlowResponse> {
-    return { version: '3.0', screen: 'SUCCESS', data: { item_name: 'DONE', item_price: '99', item_quantity: '1' } };
+    return { version: '3.0', screen: 'EDIT_ITEM', data: { item_name: 'SAVED_OK', item_price: '99', item_quantity: '1', flow_token: (payload.flow_token || ''), error_message: '✅ Save ho gaya!' } };
   }
 
   private async __handleDataExchange_ORIG(payload: DecryptedPayload): Promise<FlowResponse> {
