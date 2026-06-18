@@ -179,8 +179,7 @@ export class FlowsService {
   // ── data_exchange: user tapped "Save Changes" → validate + update ──
 
   private async handleDataExchange(payload: DecryptedPayload): Promise<FlowResponse> {
-    // Try without version, just screen + data
-    return { screen: 'SUCCESS', data: { item_name: 'DONE', item_price: '99', item_quantity: '1' } };
+    return { screen: 'DONE', data: {} };
   }
 
   private async __handleDataExchange_ORIG(payload: DecryptedPayload): Promise<FlowResponse> {

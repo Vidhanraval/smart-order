@@ -2,7 +2,7 @@
     "version": "7.3",
     "data_api_version": "3.0",
     "routing_model": {
-      "EDIT_ITEM": ["SUCCESS"]
+      "EDIT_ITEM": ["SUCCESS", "DONE"]
     },
     "screens": [
       {
@@ -146,6 +146,32 @@
             {
               "type": "Footer",
               "label": "Done",
+              "on-click-action": {
+                "name": "complete"
+              }
+            }
+          ]
+        }
+      },
+      {
+        "id": "DONE",
+        "title": "Done!",
+        "terminal": true,
+        "data": {},
+        "layout": {
+          "type": "SingleColumnLayout",
+          "children": [
+            {
+              "type": "TextHeading",
+              "text": "All Done!"
+            },
+            {
+              "type": "TextBody",
+              "text": "Item updated successfully."
+            },
+            {
+              "type": "Footer",
+              "label": "Close",
               "on-click-action": {
                 "name": "complete"
               }
