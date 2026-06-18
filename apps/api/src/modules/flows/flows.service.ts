@@ -196,10 +196,23 @@ export class FlowsService {
       return { screen: 'EDIT_ITEM', data: { error_message: 'Session expired. Please try again.' } };
     }
 
-    // Extract form values — Meta may send them flat (data.item_name)
-    // or nested under the form name (data.edit_form.item_name).
+    // Extract form values — Meta may send them in several ways:
+    //   1. Flat inside data:  payload.data.item_name
+    //   2. Nested:            payload.data.edit_form.item_name
+    //   3. Top-level:         payload.item_name (with payload.data absent)
+    //   4. Double-nested:     payload.data.EDIT_ITEM.edit_form.item_name
+    // Merge both payload.data and top-level payload keys for search.
+    const searchData: Record<string, unknown> = {
+      ...(payload.data ?? {}),
+    };
+    // Also copy top-level string values (form fields may arrive at payload root)
+    for (const [key, val] of (Object.entries(payload) as [string, unknown][])) {
+      if (typeof val === 'string' && !(key in searchData)) {
+        searchData[key] = val;
+      }
+    }
     // Also handle the case where form data is at the top level of data.
-    const formData = this.extractFormData(rawData);
+    const formData = this.extractFormData(searchData);
 
     const name = (formData.item_name ?? '').trim();
     const priceStr = (formData.item_price ?? '').trim();
