@@ -130,7 +130,9 @@
         "type": "SingleColumnLayout",
         "children": [
           { "type": "TextHeading", "text": "Changes Saved" },
-          { "type": "TextBody", "text": "Your changes have been saved." },
+          { "type": "TextBody", "text": "Item: {{data.item_name}}" },
+          { "type": "TextBody", "text": "Price: ₹{{data.item_price}}" },
+          { "type": "TextBody", "text": "Qty: {{data.item_quantity}}" },
           {
             "type": "Footer",
             "label": "Done",

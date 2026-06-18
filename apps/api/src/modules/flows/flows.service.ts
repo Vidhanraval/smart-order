@@ -257,15 +257,14 @@ export class FlowsService {
       return { screen: 'EDIT_ITEM', data: { error_message: 'Could not save. Please try again.' } };
     }
 
-    // Return to EDIT_ITEM with updated data + success message
+    // Navigate to SUCCESS screen with updated data
     return {
-      screen: 'EDIT_ITEM',
+      version: '3.0',
+      screen: 'SUCCESS',
       data: {
         item_name: name,
         item_price: priceStr || formData.item_price || '',
         item_quantity: quantityStr || formData.item_quantity || '1',
-        flow_token: flowToken,
-        error_message: '✅ Saved successfully!',
       },
     };
   }
