@@ -21,6 +21,7 @@ interface DecryptedPayload {
 }
 
 interface FlowResponse {
+  version?: string;
   screen?: string;
   data?: Record<string, unknown>;
 }
@@ -46,7 +47,7 @@ export class FlowsService {
     let response: FlowResponse;
     switch (decrypted.action) {
       case 'ping':
-        response = { data: { status: 'active' } };
+        response = { version: '3.0', data: { status: 'active' } };
         break;
       case 'INIT':
         response = await this.handleInit(decrypted);
@@ -178,7 +179,7 @@ export class FlowsService {
   // ── data_exchange: user tapped "Save Changes" → validate + update ──
 
   private async handleDataExchange(payload: DecryptedPayload): Promise<FlowResponse> {
-    return { screen: 'SUCCESS', data: { item_name: 'DONE', item_price: '99', item_quantity: '1' } };
+    return { version: '3.0', screen: 'SUCCESS', data: { item_name: 'DONE', item_price: '99', item_quantity: '1' } };
   }
 
   private async __handleDataExchange_ORIG(payload: DecryptedPayload): Promise<FlowResponse> {

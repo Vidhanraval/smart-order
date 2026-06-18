@@ -103,13 +103,7 @@
                   "type": "Footer",
                   "label": "Save Changes",
                   "on-click-action": {
-                    "name": "data_exchange",
-                    "payload": {
-                      "item_name": "${form.item_name}",
-                      "item_price": "${form.item_price}",
-                      "item_quantity": "${form.item_quantity}",
-                      "flow_token": "${data.flow_token}"
-                    }
+                    "name": "data_exchange"
                   }
                 }
               ]
