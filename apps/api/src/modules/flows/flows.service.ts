@@ -42,6 +42,7 @@ export class FlowsService {
     this.logger.log(`Flow request: action=${decrypted.action} screen=${decrypted.screen}`);
 
     // 2. Process based on action
+    this.logger.log(`Flow: action=${decrypted.action} screen=${decrypted.screen} dataKeys=${decrypted.data ? Object.keys(decrypted.data).join(',') : 'none'}`);
     let response: FlowResponse;
     switch (decrypted.action) {
       case 'ping':
@@ -59,6 +60,7 @@ export class FlowsService {
     }
 
     // 3. Encrypt and return response
+    this.logger.log(`Flow response: screen=${response.screen} dataKeys=${response.data ? Object.keys(response.data).join(',') : 'none'}`);
     return this.encryptResponse(response, aesKey, iv);
   }
 
