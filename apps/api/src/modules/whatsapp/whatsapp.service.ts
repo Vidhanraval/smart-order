@@ -965,7 +965,7 @@ export class WhatsAppService {
     this.logger.log(`Interactive reply: ${replyId} from ${from}`);
 
     try {
-      // edit_<itemId> — Buyer tapped an item → show options sub-menu
+      // edit_<itemId> — Directly open Meta Flow (no sub-menu)
       if (replyId.startsWith('edit_')) {
         const itemId = replyId.replace('edit_', '');
         const item = await this.prisma.orderItem.findUnique({
@@ -973,6 +973,31 @@ export class WhatsAppService {
           include: { order: true },
         });
         if (item) {
+          const flowId = this.configService.get<string>('whatsapp.flowId') ?? '';
+          if (flowId) {
+            const flowToken = this.flowsService.encodeFlowToken({
+              action: 'seller_edit',
+              itemId: item.id,
+              phone: from,
+              orderId: item.orderId,
+            });
+            const sent = await this.sendFlow(
+              from,
+              flowId,
+              'Edit Item',
+              `✏️ Edit: ${item.name}`,
+              `${item.quantity} ${item.unit ?? 'pcs'} — ₹${item.estimatedPrice ?? '?'}`,
+              {
+                item_name: item.name,
+                item_price: item.estimatedPrice?.toString() ?? '',
+                item_quantity: item.quantity.toString(),
+                flow_token: flowToken,
+              },
+              phoneNumberId,
+            );
+            if (sent) return;
+          }
+          // Fallback: show options sub-menu
           const showPrice = item.order.status !== 'PENDING';
           const menu = buildOrderItemOptions(item, showPrice);
           await this.sendInteractive(from, menu, phoneNumberId);
