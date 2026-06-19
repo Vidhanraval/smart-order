@@ -162,15 +162,16 @@ export class FlowsService {
       where: { id: ctx.itemId },
     });
 
+    const isBuyerEdit = ctx.action === 'buyer_qty';
+
     if (!item) {
       this.logger.warn(`INIT: item ${ctx.itemId} not found, using payload prefill data`);
-      // Return prefill data from the flow message (payload.data) instead of error
       return {
         version: '3.0',
         screen: 'EDIT_ITEM',
         data: {
           item_name: (payload.data?.item_name as string) ?? '',
-          item_price: (payload.data?.item_price as string) ?? '',
+          item_price: isBuyerEdit ? '' : ((payload.data?.item_price as string) ?? ''),
           item_quantity: (payload.data?.item_quantity as string) ?? '1',
           flow_token: flowToken,
         },
@@ -182,7 +183,7 @@ export class FlowsService {
       screen: 'EDIT_ITEM',
       data: {
         item_name: item.name,
-        item_price: item.estimatedPrice?.toString() ?? '',
+        item_price: isBuyerEdit ? '' : (item.estimatedPrice?.toString() ?? ''),
         item_quantity: item.quantity.toString(),
         flow_token: flowToken,
       },
@@ -229,10 +230,11 @@ export class FlowsService {
     const price = priceStr ? parseFloat(priceStr) : NaN;
     const quantity = quantityStr ? parseInt(quantityStr, 10) : NaN;
 
-    // Validate
+    // Validate (skip price validation for buyer edits)
+    const isBuyerEdit = ctx.action === 'buyer_qty';
     const errors: Record<string, string> = {};
     if (!name) errors.item_name = 'Name is required';
-    if (priceStr && (isNaN(price) || price <= 0))
+    if (!isBuyerEdit && priceStr && (isNaN(price) || price <= 0))
       errors.item_price = 'Enter a valid price (e.g. 60)';
     if (quantityStr && (isNaN(quantity) || quantity < 1 || quantity > 10))
       errors.item_quantity = 'Quantity must be 1–10';
@@ -251,10 +253,10 @@ export class FlowsService {
       };
     }
 
-    // Update DB
+    // Update DB — skip price for buyer edits
     const updateData: Record<string, unknown> = {};
     if (name) updateData.name = name;
-    if (!isNaN(price) && price > 0) updateData.estimatedPrice = price;
+    if (!isBuyerEdit && !isNaN(price) && price > 0) updateData.estimatedPrice = price;
     if (!isNaN(quantity) && quantity >= 1 && quantity <= 10)
       updateData.quantity = quantity;
 

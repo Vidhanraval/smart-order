@@ -965,7 +965,7 @@ export class WhatsAppService {
     this.logger.log(`Interactive reply: ${replyId} from ${from}`);
 
     try {
-      // edit_<itemId> — Directly open Meta Flow (no sub-menu)
+      // edit_<itemId> — Buyer: open Meta Flow (name + qty only, no price)
       if (replyId.startsWith('edit_')) {
         const itemId = replyId.replace('edit_', '');
         const item = await this.prisma.orderItem.findUnique({
@@ -976,7 +976,7 @@ export class WhatsAppService {
           const flowId = this.configService.get<string>('whatsapp.flowId') ?? '';
           if (flowId) {
             const flowToken = this.flowsService.encodeFlowToken({
-              action: 'seller_edit',
+              action: 'buyer_qty',
               itemId: item.id,
               phone: from,
               orderId: item.orderId,
@@ -986,10 +986,10 @@ export class WhatsAppService {
               flowId,
               'Edit Item',
               `✏️ Edit: ${item.name}`,
-              `${item.quantity} ${item.unit ?? 'pcs'} — ₹${item.estimatedPrice ?? '?'}`,
+              `${item.quantity} ${item.unit ?? 'pcs'}`,
               {
                 item_name: item.name,
-                item_price: item.estimatedPrice?.toString() ?? '',
+                item_price: '',
                 item_quantity: item.quantity.toString(),
                 flow_token: flowToken,
               },
