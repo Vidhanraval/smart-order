@@ -122,18 +122,15 @@
       "title": "Saved!",
       "terminal": true,
       "data": {
-        "flow_token": { "type": "string", "__example__": "" },
-        "item_name": { "type": "string", "__example__": "Atta" },
-        "item_price": { "type": "string", "__example__": "60" },
-        "item_quantity": { "type": "string", "__example__": "2" }
+        "item_name": { "type": "string", "__example__": "" },
+        "item_price": { "type": "string", "__example__": "" },
+        "item_quantity": { "type": "string", "__example__": "" }
       },
       "layout": {
         "type": "SingleColumnLayout",
         "children": [
-          { "type": "TextHeading", "text": "Changes Saved" },
-          { "type": "TextBody", "text": "Item: {{data.item_name}}" },
-          { "type": "TextBody", "text": "Price: ₹{{data.item_price}}" },
-          { "type": "TextBody", "text": "Qty: {{data.item_quantity}}" },
+          { "type": "TextHeading", "text": "✅ Changes Saved!" },
+          { "type": "TextBody", "text": "Your item has been updated successfully." },
           {
             "type": "Footer",
             "label": "Done",

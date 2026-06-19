@@ -316,17 +316,15 @@ export class FlowsService {
       }
     }
 
-    // Return to EDIT_ITEM with success message (avoids Meta screen navigation issues)
-    this.logger.log(`Flow edit saved: item=${ctx.itemId} name="${name}" price=${price} qty=${quantity}`);
+    // Navigate to SUCCESS screen (static screen, no templates)
+    this.logger.log(`Flow SUCCESS: item=${ctx.itemId} name="${name}" price=${price} qty=${quantity}`);
     return {
       version: '3.0',
-      screen: 'EDIT_ITEM',
+      screen: 'SUCCESS',
       data: {
         item_name: name,
         item_price: priceStr || formData.item_price || '',
         item_quantity: quantityStr || formData.item_quantity || '1',
-        flow_token: flowToken,
-        error_message: '✅ Changes saved successfully!',
       },
     };
   }
