@@ -28,7 +28,21 @@ export class FlowsController {
   @Post('data-exchange')
   @HttpCode(200)
   @Header('Content-Type', 'text/plain')
-  async handleEncryptedRequest(
+  async handleEncryptedRequestAlt(
+    @Body() body: { encrypted_flow_data: string; encrypted_aes_key: string; initial_vector: string },
+  ): Promise<string> {
+    try {
+      return await this.flowsService.handleEncryptedRequest(body);
+    } catch {
+      throw new HttpException('Decryption failed', 421);
+    }
+  }
+
+  // Catch-all for Meta flow endpoint paths (e.g. /flows/flows-builder-*)
+  @Post(':path')
+  @HttpCode(200)
+  @Header('Content-Type', 'text/plain')
+  async handleEncryptedRequestAny(
     @Body() body: { encrypted_flow_data: string; encrypted_aes_key: string; initial_vector: string },
   ): Promise<string> {
     try {
