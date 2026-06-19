@@ -316,7 +316,8 @@ export class FlowsService {
       }
     }
 
-    // Navigate to SUCCESS screen with updated data
+    // Let Meta auto-navigate to next screen per routing_model EDIT_ITEM→SUCCESS
+    this.logger.log(`Flow SUCCESS: item=${ctx.itemId} name="${name}" price=${price} qty=${quantity}`);
     return {
       version: '3.0',
       screen: 'SUCCESS',
