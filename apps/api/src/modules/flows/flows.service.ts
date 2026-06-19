@@ -324,6 +324,7 @@ export class FlowsService {
         item_name: name,
         item_price: priceStr || formData.item_price || '',
         item_quantity: quantityStr || formData.item_quantity || '1',
+        flow_token: flowToken,
       },
     };
   }
