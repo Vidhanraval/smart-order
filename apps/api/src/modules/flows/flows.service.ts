@@ -56,7 +56,7 @@ export class FlowsService {
         break;
       default:
         this.logger.warn(`Unknown flow action: ${decrypted.action}`);
-        response = { screen: 'EDIT_ITEM', data: { error_message: 'Unknown action' } };
+        response = { version: '3.0', screen: 'EDIT_ITEM', data: { error_message: 'Unknown action' } };
     }
 
     // 3. Encrypt and return response
@@ -142,19 +142,19 @@ export class FlowsService {
 
     if (!flowToken) {
       this.logger.warn('INIT with no flow_token');
-      return { screen: 'EDIT_ITEM', data: { error_message: 'Missing flow_token' } };
+      return { version: '3.0', screen: 'EDIT_ITEM', data: { error_message: 'Missing flow_token' } };
     }
 
     let ctx: FlowTokenPayload;
     try {
       ctx = this.decodeFlowToken(flowToken);
     } catch {
-      return { screen: 'EDIT_ITEM', data: { error_message: 'Invalid session' } };
+      return { version: '3.0', screen: 'EDIT_ITEM', data: { flow_token: flowToken, error_message: 'Invalid session' } };
     }
 
     // Expire after 15 minutes
     if (Date.now() - ctx.iat > 15 * 60 * 1000) {
-      return { screen: 'EDIT_ITEM', data: { error_message: 'Session expired. Please try again.' } };
+      return { version: '3.0', screen: 'EDIT_ITEM', data: { flow_token: flowToken, error_message: 'Session expired. Please try again.' } };
     }
 
     const item = await this.prisma.orderItem.findUnique({
@@ -162,10 +162,12 @@ export class FlowsService {
     });
 
     if (!item) {
-      return { screen: 'EDIT_ITEM', data: { error_message: 'Item not found.' } };
+      return { version: '3.0', screen: 'EDIT_ITEM', data: { flow_token: flowToken, error_message: 'Item not found.' } };
     }
 
     return {
+      version: '3.0',
+      screen: 'EDIT_ITEM',
       data: {
         item_name: item.name,
         item_price: item.estimatedPrice?.toString() ?? '',
@@ -184,18 +186,18 @@ export class FlowsService {
     const flowToken = (rawData.flow_token || payload.flow_token) as string | undefined;
 
     if (!flowToken) {
-      return { screen: 'EDIT_ITEM', data: { error_message: 'Missing flow_token' } };
+      return { version: '3.0', screen: 'EDIT_ITEM', data: { error_message: 'Missing flow_token' } };
     }
 
     let ctx: FlowTokenPayload;
     try {
       ctx = this.decodeFlowToken(flowToken);
     } catch {
-      return { screen: 'EDIT_ITEM', data: { error_message: 'Invalid session' } };
+      return { version: '3.0', screen: 'EDIT_ITEM', data: { flow_token: flowToken, error_message: 'Invalid session' } };
     }
 
     if (Date.now() - ctx.iat > 15 * 60 * 1000) {
-      return { screen: 'EDIT_ITEM', data: { error_message: 'Session expired. Please try again.' } };
+      return { version: '3.0', screen: 'EDIT_ITEM', data: { flow_token: flowToken, error_message: 'Session expired. Please try again.' } };
     }
 
     // Extract form values from wherever Meta puts them
@@ -225,6 +227,7 @@ export class FlowsService {
 
     if (Object.keys(errors).length > 0) {
       return {
+        version: '3.0',
         screen: 'EDIT_ITEM',
         data: {
           item_name: name || formData.item_name || '',
@@ -253,8 +256,14 @@ export class FlowsService {
       );
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
+      // Prisma P2025 = record not found (item deleted between INIT and save)
+      const code = (err as any)?.code as string | undefined;
+      if (code === 'P2025') {
+        this.logger.warn(`Flow update: item ${ctx.itemId} not found`);
+        return { version: '3.0', screen: 'EDIT_ITEM', data: { flow_token: flowToken, error_message: 'Item no longer exists.' } };
+      }
       this.logger.error(`Flow update failed: ${msg}`);
-      return { screen: 'EDIT_ITEM', data: { error_message: 'Could not save. Please try again.' } };
+      return { version: '3.0', screen: 'EDIT_ITEM', data: { flow_token: flowToken, error_message: `Could not save. ${msg}` } };
     }
 
     // Navigate to SUCCESS screen with updated data
@@ -286,6 +295,11 @@ export class FlowsService {
         if (typeof val === 'string') {
           if (key === 'item_name' || key === 'item_price' || key === 'item_quantity') {
             result[key] = val;
+          }
+        } else if (typeof val === 'number') {
+          // Meta may send numeric fields as numbers even when declared as string type
+          if (key === 'item_price' || key === 'item_quantity') {
+            result[key] = val.toString();
           }
         } else if (typeof val === 'object' && val !== null && !Array.isArray(val)) {
           search(val as Record<string, unknown>);
