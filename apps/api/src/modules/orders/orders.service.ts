@@ -175,6 +175,44 @@ export class OrdersService {
     return getStatusLabel(status as OrderStatus);
   }
 
+  async testCreateOrder(body: {
+    customerPhone: string;
+    sellerPhone: string;
+    items: Array<{ name: string; quantity: number; price?: number; unit?: string }>;
+  }) {
+    // Find or create customer
+    let customer = await this.prisma.customer.findUnique({ where: { phoneNumber: body.customerPhone } });
+    if (!customer) {
+      customer = await this.prisma.customer.create({ data: { phoneNumber: body.customerPhone, name: body.customerPhone } });
+    }
+
+    // Find seller
+    const seller = await this.prisma.seller.findUnique({ where: { phoneNumber: body.sellerPhone } });
+    if (!seller) throw new NotFoundException(`Seller ${body.sellerPhone} not found`);
+
+    // Create order with items
+    const order = await this.prisma.order.create({
+      data: {
+        customerId: customer.id,
+        sellerId: seller.id,
+        status: 'REVIEWING',
+        items: {
+          create: body.items.map((item) => ({
+            name: item.name,
+            quantity: item.quantity,
+            unit: item.unit || 'pcs',
+            estimatedPrice: item.price || null,
+            status: 'PENDING',
+          })),
+        },
+      },
+      include: { items: true, customer: true, seller: true },
+    });
+
+    this.logger.log(`Test order created: ${order.id} with ${order.items.length} items`);
+    return order;
+  }
+
   // ── Dashboard: all data in one flat table ─────────────────────────
 
   async getFullSummary() {
