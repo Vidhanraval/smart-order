@@ -1,0 +1,79 @@
+{
+  "version": "7.3",
+  "data_api_version": "3.0",
+  "routing_model": {
+    "EDIT_ITEM": ["SUCCESS"]
+  },
+  "screens": [
+    {
+      "id": "EDIT_ITEM",
+      "title": "Edit Item",
+      "terminal": false,
+      "data": {
+        "flow_token": { "type": "string", "label": "Token", "__example__": "unused" },
+        "error_message": { "type": "string", "label": "Status", "__example__": "" },
+        "item_name": {
+          "type": "string", "label": "Item Name", "required": true,
+          "max-chars": 80, "default": "{{data.item_name}}", "__example__": "Atta"
+        },
+        "item_quantity": {
+          "type": "string", "label": "Quantity", "required": true,
+          "data-source": [
+            {"id":"1","title":"1"},{"id":"2","title":"2"},{"id":"3","title":"3"},
+            {"id":"4","title":"4"},{"id":"5","title":"5"},{"id":"6","title":"6"},
+            {"id":"7","title":"7"},{"id":"8","title":"8"},{"id":"9","title":"9"},
+            {"id":"10","title":"10"}
+          ],
+          "default": "{{data.item_quantity}}", "__example__": "2"
+        }
+      },
+      "layout": {
+        "type": "SingleColumnLayout",
+        "children": [
+          { "type": "TextHeading", "text": "{{data.error_message}}" },
+          {
+            "type": "Form", "name": "edit_form",
+            "children": [
+              { "type": "TextInput", "name": "item_name", "label": "Item Name", "required": true },
+              { "type": "Dropdown", "name": "item_quantity", "label": "Quantity", "required": true,
+                "data-source": [
+                  {"id":"1","title":"1"},{"id":"2","title":"2"},{"id":"3","title":"3"},
+                  {"id":"4","title":"4"},{"id":"5","title":"5"},{"id":"6","title":"6"},
+                  {"id":"7","title":"7"},{"id":"8","title":"8"},{"id":"9","title":"9"},
+                  {"id":"10","title":"10"}
+                ]
+              },
+              { "type": "Footer", "label": "Save Changes",
+                "on-click-action": {
+                  "name": "data_exchange",
+                  "payload": {
+                    "item_name": "${form.item_name}",
+                    "item_quantity": "${form.item_quantity}",
+                    "flow_token": "${data.flow_token}"
+                  }
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "SUCCESS",
+      "title": "Saved!",
+      "terminal": true,
+      "data": {
+        "item_name": { "type": "string", "__example__": "" },
+        "item_quantity": { "type": "string", "__example__": "" }
+      },
+      "layout": {
+        "type": "SingleColumnLayout",
+        "children": [
+          { "type": "TextHeading", "text": "✅ Changes Saved!" },
+          { "type": "TextBody", "text": "Your item has been updated successfully." },
+          { "type": "Footer", "label": "Done", "on-click-action": { "name": "complete" } }
+        ]
+      }
+    }
+  ]
+}

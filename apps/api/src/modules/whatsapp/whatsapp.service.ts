@@ -965,7 +965,7 @@ export class WhatsAppService {
     this.logger.log(`Interactive reply: ${replyId} from ${from}`);
 
     try {
-      // edit_<itemId> — Buyer: open Meta Flow (name + qty only, no price)
+      // edit_<itemId> — Buyer: open buyer Meta Flow (name + qty only, no price)
       if (replyId.startsWith('edit_')) {
         const itemId = replyId.replace('edit_', '');
         const item = await this.prisma.orderItem.findUnique({
@@ -973,7 +973,7 @@ export class WhatsAppService {
           include: { order: true },
         });
         if (item) {
-          const flowId = this.configService.get<string>('whatsapp.flowId') ?? '';
+          const flowId = this.configService.get<string>('whatsapp.buyerFlowId') || this.configService.get<string>('whatsapp.flowId') || '';
           if (flowId) {
             const flowToken = this.flowsService.encodeFlowToken({
               action: 'buyer_qty',
