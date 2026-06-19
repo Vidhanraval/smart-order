@@ -61,10 +61,6 @@
         "type": "SingleColumnLayout",
         "children": [
           {
-            "type": "TextBody",
-            "text": "{{data.error_message}}"
-          },
-          {
             "type": "Form",
             "name": "edit_form",
             "children": [
