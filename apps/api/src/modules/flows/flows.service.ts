@@ -1,6 +1,7 @@
 import { Injectable, Logger, BadRequestException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import * as crypto from 'crypto';
+import axios from 'axios';
 import { PrismaService } from '../../prisma/prisma.service';
 import { FlowTokenPayload } from './dto/flows.dto';
 
@@ -316,6 +317,9 @@ export class FlowsService {
       }
     }
 
+    // Send WhatsApp confirmation directly (bypasses flow-completion webhook delay)
+    await this.sendWhatsAppConfirmation(ctx.phone, name, price, quantity);
+
     // Navigate to SUCCESS screen — user taps Done → complete → flow closes
     this.logger.log(`Flow SUCCESS: item=${ctx.itemId} name="${name}" price=${price} qty=${quantity}`);
     return {
@@ -364,6 +368,36 @@ export class FlowsService {
   }
 
   // ── Token encoding/decoding ──────────────────────────────────────
+
+  // Send WhatsApp confirmation after successful data_exchange save
+  private async sendWhatsAppConfirmation(
+    to: string,
+    itemName: string,
+    price: number,
+    quantity: number,
+  ): Promise<void> {
+    try {
+      const phoneNumberId = this.configService.get<string>('whatsapp.phoneNumberId') ?? '';
+      const accessToken = this.configService.get<string>('whatsapp.accessToken') ?? '';
+      if (!phoneNumberId || !accessToken) return;
+
+      await axios.post(
+        `https://graph.facebook.com/v22.0/${phoneNumberId}/messages`,
+        {
+          messaging_product: 'whatsapp',
+          recipient_type: 'individual',
+          to,
+          type: 'text',
+          text: { body: `✅ Updated: ${itemName} — ₹${price} x ${quantity}` },
+        },
+        { headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' } },
+      );
+      this.logger.log(`WhatsApp confirmation sent to ${to}`);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      this.logger.error(`Failed to send WhatsApp confirmation: ${msg}`);
+    }
+  }
 
   encodeFlowToken(ctx: Omit<FlowTokenPayload, 'iat' | 'v'>): string {
     const payload: FlowTokenPayload = { ...ctx, v: 1, iat: Date.now() };
