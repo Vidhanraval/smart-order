@@ -973,34 +973,27 @@ export class WhatsAppService {
           include: { order: true },
         });
         if (item) {
-          const flowId = this.configService.get<string>('whatsapp.buyerFlowId') || '2230603581028843';
-          if (flowId) {
-            const flowToken = this.flowsService.encodeFlowToken({
-              action: 'buyer_qty',
-              itemId: item.id,
-              phone: from,
-              orderId: item.orderId,
-            });
-            const sent = await this.sendFlow(
-              from,
-              flowId,
-              'Edit Item',
-              `✏️ Edit: ${item.name}`,
-              `${item.quantity} ${item.unit ?? 'pcs'}`,
-              {
-                item_name: item.name,
-                item_price: '',
-                item_quantity: item.quantity.toString(),
-                flow_token: flowToken,
-              },
-              phoneNumberId,
-            );
-            if (sent) return;
-          }
-          // Fallback: show options sub-menu
-          const showPrice = item.order.status !== 'PENDING';
-          const menu = buildOrderItemOptions(item, showPrice);
-          await this.sendInteractive(from, menu, phoneNumberId);
+          const flowId = '2230603581028843';
+          const flowToken = this.flowsService.encodeFlowToken({
+            action: 'buyer_qty',
+            itemId: item.id,
+            phone: from,
+            orderId: item.orderId,
+          });
+          await this.sendFlow(
+            from,
+            flowId,
+            'Edit Item',
+            `✏️ Edit: ${item.name}`,
+            `${item.quantity} ${item.unit ?? 'pcs'}`,
+            {
+              item_name: item.name,
+              item_price: '',
+              item_quantity: item.quantity.toString(),
+              flow_token: flowToken,
+            },
+            phoneNumberId,
+          );
         }
         return;
       }
