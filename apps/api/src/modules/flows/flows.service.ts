@@ -316,13 +316,13 @@ export class FlowsService {
       }
     }
 
-    // Stay on EDIT_ITEM — show ✓ in item_name so user sees success instantly
-    this.logger.log(`Flow edit saved: item=${ctx.itemId} name="${name}" price=${price} qty=${quantity}`);
+    // Navigate to SUCCESS screen — user taps Done → complete → flow closes
+    this.logger.log(`Flow SUCCESS: item=${ctx.itemId} name="${name}" price=${price} qty=${quantity}`);
     return {
       version: '3.0',
-      screen: 'EDIT_ITEM',
+      screen: 'SUCCESS',
       data: {
-        item_name: `✓ ${name}`,
+        item_name: name,
         item_price: priceStr || formData.item_price || '',
         item_quantity: quantityStr || formData.item_quantity || '1',
         flow_token: flowToken,
