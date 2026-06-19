@@ -973,7 +973,7 @@ export class WhatsAppService {
           include: { order: true },
         });
         if (item) {
-          const flowId = '2230603581028843';
+          const flowId = '1954124355239343'; // Use seller flow until buyer flow Meta setup is complete
           const flowToken = this.flowsService.encodeFlowToken({
             action: 'buyer_qty',
             itemId: item.id,
