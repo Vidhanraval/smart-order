@@ -1112,11 +1112,38 @@ export class WhatsAppService {
         return;
       }
 
-      // edititem_<itemId> — Seller tapped ✏️ Edit, show inline editor
+      // edititem_<itemId> — Directly open Meta Flow (no sub-menu)
       if (replyId.startsWith('edititem_')) {
         const itemId = replyId.replace('edititem_', '');
         const item = await this.prisma.orderItem.findUnique({ where: { id: itemId } });
-        if (item) await this.showInlineEditor(from, item, phoneNumberId);
+        if (item) {
+          const flowId = this.configService.get<string>('whatsapp.flowId') ?? '';
+          if (flowId) {
+            const flowToken = this.flowsService.encodeFlowToken({
+              action: 'seller_edit',
+              itemId: item.id,
+              phone: from,
+              orderId: item.orderId,
+            });
+            const sent = await this.sendFlow(
+              from,
+              flowId,
+              'Edit Item',
+              `✏️ Edit: ${item.name}`,
+              `${item.quantity} ${item.unit ?? 'pcs'} — ₹${item.estimatedPrice ?? '?'}`,
+              {
+                item_name: item.name,
+                item_price: item.estimatedPrice?.toString() ?? '',
+                item_quantity: item.quantity.toString(),
+                flow_token: flowToken,
+              },
+              phoneNumberId,
+            );
+            if (sent) return;
+          }
+          // Fallback: show inline editor
+          await this.showInlineEditor(from, item, phoneNumberId);
+        }
         return;
       }
 
