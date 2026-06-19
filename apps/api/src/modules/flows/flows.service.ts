@@ -272,6 +272,23 @@ export class FlowsService {
         // Record not found — try to create instead (upsert behavior)
         if (ctx.orderId) {
           try {
+            // Ensure the order exists (create if needed)
+            let order = await this.prisma.order.findUnique({ where: { id: ctx.orderId } });
+            if (!order) {
+              const seller = await this.prisma.seller.findUnique({ where: { phoneNumber: ctx.phone } });
+              if (!seller) {
+                return { version: '3.0', screen: 'EDIT_ITEM', data: { flow_token: flowToken, error_message: 'Seller not found.' } };
+              }
+              // Find or create customer
+              let customer = await this.prisma.customer.findUnique({ where: { phoneNumber: ctx.phone } });
+              if (!customer) {
+                customer = await this.prisma.customer.create({ data: { phoneNumber: ctx.phone, name: ctx.phone } });
+              }
+              order = await this.prisma.order.create({
+                data: { id: ctx.orderId, customerId: customer.id, sellerId: seller.id, status: 'ACTIVE' },
+              });
+              this.logger.log(`Flow: created order ${order.id} for item creation`);
+            }
             const created = await this.prisma.orderItem.create({
               data: {
                 id: ctx.itemId,
