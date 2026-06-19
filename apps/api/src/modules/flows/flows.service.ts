@@ -321,6 +321,7 @@ export class FlowsService {
     await this.sendWhatsAppConfirmation(ctx.phone, name, price, quantity);
 
     // Navigate to SUCCESS screen — user taps Done → complete → flow closes
+    // Only return fields declared in SUCCESS screen's data section
     this.logger.log(`Flow SUCCESS: item=${ctx.itemId} name="${name}" price=${price} qty=${quantity}`);
     return {
       version: '3.0',
@@ -329,7 +330,6 @@ export class FlowsService {
         item_name: name,
         item_price: priceStr || formData.item_price || '',
         item_quantity: quantityStr || formData.item_quantity || '1',
-        flow_token: flowToken,
       },
     };
   }
