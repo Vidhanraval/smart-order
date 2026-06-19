@@ -316,17 +316,16 @@ export class FlowsService {
       }
     }
 
-    // Stay on EDIT_ITEM — Meta Flows data_exchange screen navigation is unreliable
+    // Stay on EDIT_ITEM — show ✓ in item_name so user sees success instantly
     this.logger.log(`Flow edit saved: item=${ctx.itemId} name="${name}" price=${price} qty=${quantity}`);
     return {
       version: '3.0',
       screen: 'EDIT_ITEM',
       data: {
-        item_name: name,
+        item_name: `✓ ${name}`,
         item_price: priceStr || formData.item_price || '',
         item_quantity: quantityStr || formData.item_quantity || '1',
         flow_token: flowToken,
-        error_message: '✅ Changes Saved!',
       },
     };
   }
