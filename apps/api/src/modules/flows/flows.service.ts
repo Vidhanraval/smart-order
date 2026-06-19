@@ -162,7 +162,18 @@ export class FlowsService {
     });
 
     if (!item) {
-      return { version: '3.0', screen: 'EDIT_ITEM', data: { flow_token: flowToken, error_message: 'Item not found.' } };
+      this.logger.warn(`INIT: item ${ctx.itemId} not found, using payload prefill data`);
+      // Return prefill data from the flow message (payload.data) instead of error
+      return {
+        version: '3.0',
+        screen: 'EDIT_ITEM',
+        data: {
+          item_name: (payload.data?.item_name as string) ?? '',
+          item_price: (payload.data?.item_price as string) ?? '',
+          item_quantity: (payload.data?.item_quantity as string) ?? '1',
+          flow_token: flowToken,
+        },
+      };
     }
 
     return {
@@ -256,14 +267,36 @@ export class FlowsService {
       );
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
-      // Prisma P2025 = record not found (item deleted between INIT and save)
       const code = (err as any)?.code as string | undefined;
       if (code === 'P2025') {
-        this.logger.warn(`Flow update: item ${ctx.itemId} not found`);
-        return { version: '3.0', screen: 'EDIT_ITEM', data: { flow_token: flowToken, error_message: 'Item no longer exists.' } };
+        // Record not found — try to create instead (upsert behavior)
+        if (ctx.orderId) {
+          try {
+            const created = await this.prisma.orderItem.create({
+              data: {
+                id: ctx.itemId,
+                orderId: ctx.orderId,
+                name: name,
+                quantity: !isNaN(quantity) && quantity >= 1 ? quantity : 1,
+                estimatedPrice: !isNaN(price) && price > 0 ? price : null,
+                status: 'PENDING',
+              },
+            });
+            this.logger.log(`Flow edit created item: ${created.id} name="${name}"`);
+            // Fall through to SUCCESS below
+          } catch (createErr: unknown) {
+            const cMsg = createErr instanceof Error ? createErr.message : String(createErr);
+            this.logger.error(`Flow create also failed: ${cMsg}`);
+            return { version: '3.0', screen: 'EDIT_ITEM', data: { flow_token: flowToken, error_message: `Could not save. ${cMsg}` } };
+          }
+        } else {
+          this.logger.warn(`Flow update: item ${ctx.itemId} not found and no orderId in token`);
+          return { version: '3.0', screen: 'EDIT_ITEM', data: { flow_token: flowToken, error_message: 'Item no longer exists.' } };
+        }
+      } else {
+        this.logger.error(`Flow update failed: ${msg}`);
+        return { version: '3.0', screen: 'EDIT_ITEM', data: { flow_token: flowToken, error_message: `Could not save. ${msg}` } };
       }
-      this.logger.error(`Flow update failed: ${msg}`);
-      return { version: '3.0', screen: 'EDIT_ITEM', data: { flow_token: flowToken, error_message: `Could not save. ${msg}` } };
     }
 
     // Navigate to SUCCESS screen with updated data

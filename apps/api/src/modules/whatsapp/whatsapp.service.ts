@@ -1157,6 +1157,7 @@ export class WhatsAppService {
               action: 'seller_edit',
               itemId: item.id,
               phone: from,
+              orderId: item.orderId,
             });
             const sent = await this.sendFlow(
               from,
