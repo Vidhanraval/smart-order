@@ -973,7 +973,7 @@ export class WhatsAppService {
           include: { order: true },
         });
         if (item) {
-          const flowId = this.configService.get<string>('whatsapp.buyerFlowId') || this.configService.get<string>('whatsapp.flowId') || '';
+          const flowId = this.configService.get<string>('whatsapp.buyerFlowId') || '2230603581028843';
           if (flowId) {
             const flowToken = this.flowsService.encodeFlowToken({
               action: 'buyer_qty',
