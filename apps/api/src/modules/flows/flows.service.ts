@@ -316,15 +316,17 @@ export class FlowsService {
       }
     }
 
-    // Navigate to SUCCESS screen (static screen, no templates)
-    this.logger.log(`Flow SUCCESS: item=${ctx.itemId} name="${name}" price=${price} qty=${quantity}`);
+    // Stay on EDIT_ITEM — Meta Flows data_exchange screen navigation is unreliable
+    this.logger.log(`Flow edit saved: item=${ctx.itemId} name="${name}" price=${price} qty=${quantity}`);
     return {
       version: '3.0',
-      screen: 'SUCCESS',
+      screen: 'EDIT_ITEM',
       data: {
         item_name: name,
         item_price: priceStr || formData.item_price || '',
         item_quantity: quantityStr || formData.item_quantity || '1',
+        flow_token: flowToken,
+        error_message: '✅ Changes Saved!',
       },
     };
   }
