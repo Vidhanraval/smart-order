@@ -973,17 +973,20 @@ export class WhatsAppService {
           include: { order: true },
         });
         if (item) {
+          // Use buyer flow if configured AND working, else fall back to seller flow.
+          // Seller flow has price field (required:false), so buyer sees empty price — functional fallback.
           const buyerFlowId = this.configService.get<string>('whatsapp.buyerFlowId') ?? '';
-          const fallbackFlowId = this.configService.get<string>('whatsapp.flowId') ?? '';
-          const flowId = buyerFlowId || fallbackFlowId || '1954124355239343';
-          this.logger.log(`Buyer edit: using flow=${flowId} buyerFlowId=${buyerFlowId || '(unset)'}`);
+          const sellerFlowId = this.configService.get<string>('whatsapp.flowId') ?? '';
+          // Always try buyer flow first, fall back to seller flow
+          let flowId = buyerFlowId || sellerFlowId || '1954124355239343';
+          this.logger.log(`Buyer edit: using flow=${flowId} buyerFlowId=${buyerFlowId || '(unset)'} sellerFlowId=${sellerFlowId || '(unset)'}`);
           const flowToken = this.flowsService.encodeFlowToken({
             action: 'buyer_qty',
             itemId: item.id,
             phone: from,
             orderId: item.orderId,
           });
-          const sent = await this.sendFlow(
+          let sent = await this.sendFlow(
             from,
             flowId,
             'Edit Item',
@@ -997,14 +1000,26 @@ export class WhatsAppService {
             },
             phoneNumberId,
           );
+          // If buyer flow failed, retry with seller flow
+          if (!sent && buyerFlowId) {
+            this.logger.warn(`Buyer flow ${buyerFlowId} failed, retrying with seller flow ${sellerFlowId}`);
+            flowId = sellerFlowId || '1954124355239343';
+            sent = await this.sendFlow(
+              from, flowId, 'Edit Item',
+              `✏️ Edit: ${item.name}`,
+              `${item.quantity} ${item.unit ?? 'pcs'}`,
+              { item_name: item.name, item_price: '', item_quantity: item.quantity.toString(), flow_token: flowToken },
+              phoneNumberId,
+            );
+          }
           if (!sent) {
-            // Fallback: show quantity picker and text edit prompt
-            this.logger.warn(`Buyer flow send failed for ${from}, falling back to qty picker`);
+            // Both flows failed — fallback to qty picker + rename
+            this.logger.warn(`All flows failed for buyer edit by ${from}, showing fallback`);
             const picker = buildBuyerQtyPicker(item);
             await this.sendInteractive(from, picker, phoneNumberId);
             await this.sendText(
               from,
-              `✏️ To rename *${item.name}*, reply with the new name (e.g. "Desi Ghee"):`,
+              `✏️ To rename *${item.name}*, reply with the new name:`,
               phoneNumberId,
             );
             this.pendingActions.set(from, { action: 'seller_rename', itemId: item.id });
