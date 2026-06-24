@@ -169,28 +169,26 @@ export class FlowsService {
 
     if (!item) {
       this.logger.warn(`INIT: item ${ctx.itemId} not found, using payload prefill data`);
-      return {
-        version: '3.0',
-        screen: 'EDIT_ITEM',
-        data: {
-          item_name: (payload.data?.item_name as string) ?? '',
-          item_price: isBuyerEdit ? '' : ((payload.data?.item_price as string) ?? ''),
-          item_quantity: (payload.data?.item_quantity as string) ?? '1',
-          flow_token: flowToken,
-        },
+      const initData: Record<string, unknown> = {
+        item_name: (payload.data?.item_name as string) ?? '',
+        item_quantity: (payload.data?.item_quantity as string) ?? '1',
+        flow_token: flowToken,
       };
+      if (!isBuyerEdit) {
+        initData.item_price = (payload.data?.item_price as string) ?? '';
+      }
+      return { version: '3.0', screen: 'EDIT_ITEM', data: initData };
     }
 
-    return {
-      version: '3.0',
-      screen: 'EDIT_ITEM',
-      data: {
-        item_name: item.name,
-        item_price: isBuyerEdit ? '' : (item.estimatedPrice?.toString() ?? ''),
-        item_quantity: item.quantity.toString(),
-        flow_token: flowToken,
-      },
+    const initData: Record<string, unknown> = {
+      item_name: item.name,
+      item_quantity: item.quantity.toString(),
+      flow_token: flowToken,
     };
+    if (!isBuyerEdit) {
+      initData.item_price = item.estimatedPrice?.toString() ?? '';
+    }
+    return { version: '3.0', screen: 'EDIT_ITEM', data: initData };
   }
 
   // ── data_exchange: user tapped "Save Changes" → validate + update ──
@@ -331,14 +329,18 @@ export class FlowsService {
     // Navigate to SUCCESS screen — user taps Done → complete → flow closes
     // Only return fields declared in SUCCESS screen's data section
     this.logger.log(`Flow SUCCESS: item=${ctx.itemId} name="${name}" price=${price} qty=${quantity}`);
+    const successData: Record<string, string> = {
+      item_name: name,
+      item_quantity: quantityStr || formData.item_quantity || '1',
+    };
+    // Buyer flow SUCCESS screen has no item_price field — only include for seller flow
+    if (!isBuyerEdit) {
+      successData.item_price = priceStr || (formData.item_price as string) || '';
+    }
     return {
       version: '3.0',
       screen: 'SUCCESS',
-      data: {
-        item_name: name,
-        item_price: priceStr || formData.item_price || '',
-        item_quantity: quantityStr || formData.item_quantity || '1',
-      },
+      data: successData,
     };
   }
 
@@ -389,6 +391,9 @@ export class FlowsService {
       const accessToken = this.configService.get<string>('whatsapp.accessToken') ?? '';
       if (!phoneNumberId || !accessToken) return;
 
+      const body = isNaN(price) || price <= 0
+        ? `✅ Updated: ${itemName} x ${quantity}`
+        : `✅ Updated: ${itemName} — ₹${price} x ${quantity}`;
       await axios.post(
         `https://graph.facebook.com/v22.0/${phoneNumberId}/messages`,
         {
@@ -396,7 +401,7 @@ export class FlowsService {
           recipient_type: 'individual',
           to,
           type: 'text',
-          text: { body: `✅ Updated: ${itemName} — ₹${price} x ${quantity}` },
+          text: { body },
         },
         { headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' } },
       );

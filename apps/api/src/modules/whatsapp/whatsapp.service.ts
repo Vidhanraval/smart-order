@@ -973,7 +973,9 @@ export class WhatsAppService {
           include: { order: true },
         });
         if (item) {
-          const flowId = '1954124355239343'; // Use seller flow until buyer flow Meta setup is complete
+          const buyerFlowId = this.configService.get<string>('whatsapp.buyerFlowId') ?? '';
+          const fallbackFlowId = this.configService.get<string>('whatsapp.flowId') ?? '';
+          const flowId = buyerFlowId || fallbackFlowId || '1954124355239343';
           const flowToken = this.flowsService.encodeFlowToken({
             action: 'buyer_qty',
             itemId: item.id,
@@ -988,7 +990,6 @@ export class WhatsAppService {
             `${item.quantity} ${item.unit ?? 'pcs'}`,
             {
               item_name: item.name,
-              item_price: '',
               item_quantity: item.quantity.toString(),
               flow_token: flowToken,
             },
