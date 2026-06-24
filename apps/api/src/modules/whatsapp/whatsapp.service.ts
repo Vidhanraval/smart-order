@@ -1955,12 +1955,7 @@ export class WhatsAppService {
 
     if (!item) return;
 
-    await this.sendText(
-      from,
-      `✅ Updated: ${item.name} — ₹${item.estimatedPrice ?? '?'} x ${item.quantity}`,
-      phoneNumberId,
-    );
-
+    // Confirmation already sent by FlowsService.data_exchange — just refresh the view
     await this.resendAfterEdit(from, item.orderId, phoneNumberId);
   }
 
