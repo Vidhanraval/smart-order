@@ -1515,7 +1515,7 @@ export class WhatsAppService {
   // ── Resend helper — buyer gets order review, seller gets packing slip ─
 
   /** After an edit, resend the right message: order review for buyers, packing slip for sellers */
-  private async resendAfterEdit(from: string, orderId: string, phoneNumberId?: string) {
+  public async resendAfterEdit(from: string, orderId: string, phoneNumberId?: string) {
     const seller = await this.prisma.seller.findUnique({ where: { phoneNumber: from } });
     if (seller) {
       await this.sendInlinePackingSlip(from, orderId, phoneNumberId);

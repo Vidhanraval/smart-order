@@ -1,9 +1,10 @@
-import { Injectable, Logger, BadRequestException } from '@nestjs/common';
+import { Injectable, Logger, BadRequestException, Inject, forwardRef } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import * as crypto from 'crypto';
 import axios from 'axios';
 import { PrismaService } from '../../prisma/prisma.service';
 import { FlowTokenPayload } from './dto/flows.dto';
+import { WhatsAppService } from '../whatsapp/whatsapp.service';
 
 // ── Types ─────────────────────────────────────────────────────────
 
@@ -34,6 +35,8 @@ export class FlowsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly configService: ConfigService,
+    @Inject(forwardRef(() => WhatsAppService))
+    private readonly whatsAppService: WhatsAppService,
   ) {}
 
   // ── Main entry point: decrypt → process → encrypt → return ───
@@ -319,8 +322,11 @@ export class FlowsService {
       }
     }
 
-    // Send WhatsApp confirmation directly (bypasses flow-completion webhook delay)
+    // Send WhatsApp confirmation + refresh view (don't wait for webhook)
     await this.sendWhatsAppConfirmation(ctx.phone, name, price, quantity);
+    if (ctx.orderId) {
+      await this.whatsAppService.resendAfterEdit(ctx.phone, ctx.orderId);
+    }
 
     // Navigate to SUCCESS screen — user taps Done → complete → flow closes
     // Only return fields declared in SUCCESS screen's data section
