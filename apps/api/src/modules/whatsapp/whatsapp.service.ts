@@ -976,13 +976,14 @@ export class WhatsAppService {
           const buyerFlowId = this.configService.get<string>('whatsapp.buyerFlowId') ?? '';
           const fallbackFlowId = this.configService.get<string>('whatsapp.flowId') ?? '';
           const flowId = buyerFlowId || fallbackFlowId || '1954124355239343';
+          this.logger.log(`Buyer edit: using flow=${flowId} buyerFlowId=${buyerFlowId || '(unset)'}`);
           const flowToken = this.flowsService.encodeFlowToken({
             action: 'buyer_qty',
             itemId: item.id,
             phone: from,
             orderId: item.orderId,
           });
-          await this.sendFlow(
+          const sent = await this.sendFlow(
             from,
             flowId,
             'Edit Item',
@@ -996,6 +997,18 @@ export class WhatsAppService {
             },
             phoneNumberId,
           );
+          if (!sent) {
+            // Fallback: show quantity picker and text edit prompt
+            this.logger.warn(`Buyer flow send failed for ${from}, falling back to qty picker`);
+            const picker = buildBuyerQtyPicker(item);
+            await this.sendInteractive(from, picker, phoneNumberId);
+            await this.sendText(
+              from,
+              `✏️ To rename *${item.name}*, reply with the new name (e.g. "Desi Ghee"):`,
+              phoneNumberId,
+            );
+            this.pendingActions.set(from, { action: 'seller_rename', itemId: item.id });
+          }
         }
         return;
       }
