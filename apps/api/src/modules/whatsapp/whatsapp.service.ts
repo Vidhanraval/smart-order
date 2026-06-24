@@ -19,6 +19,7 @@ import {
   buildInlineEditOptions,
   buildPricePicker,
   buildBuyerQtyPicker,
+  buildBatchSelectList,
   formatItemsList,
   WhatsAppInteractiveButtons,
 } from './interactive-messages';
@@ -34,6 +35,8 @@ export class WhatsAppService {
   // V1 in-memory pending actions: phoneNumber → { action, itemId }
   private readonly pendingActions = new Map<string, { action: string; itemId: string }>();
   // (tapCount removed — edit now directly opens Meta Flow via edititem_)
+  // Batch edit: phoneNumber → { orderId, selected: itemId[], remaining: itemId[] }
+  private readonly batchSessions = new Map<string, { orderId: string; selected: string[]; remaining: string[] }>();
 
   constructor(
     private readonly configService: ConfigService,
@@ -1159,6 +1162,82 @@ export class WhatsAppService {
         return;
       }
 
+      // ── Batch edit: multi-select → chain-edit ─────────────────────
+
+      // batch_<orderId> — Seller opens batch select list
+      if (replyId.startsWith('batch_')) {
+        const orderId = replyId.replace('batch_', '');
+        const order = await this.prisma.order.findUnique({
+          where: { id: orderId }, include: { items: true },
+        });
+        if (!order) return;
+        const pending = (order.items ?? []).filter(
+          (i) => i.status === 'PENDING' || i.status === 'REPLACEMENT_ACCEPTED',
+        );
+        if (pending.length <= 1) {
+          await this.sendText(from, '⚠️ Only 1 pending item. Use regular edit.', phoneNumberId);
+          return;
+        }
+        const ids = pending.map((i) => i.id);
+        this.batchSessions.set(from, { orderId, selected: [], remaining: [...ids] });
+        const list = buildBatchSelectList(orderId, pending, []);
+        await this.sendInteractive(from, list, phoneNumberId);
+        return;
+      }
+
+      // batchpick_<itemId> — Seller picks an item to add to batch
+      if (replyId.startsWith('batchpick_')) {
+        const itemId = replyId.replace('batchpick_', '');
+        const session = this.batchSessions.get(from);
+        if (!session) return;
+        // Move item from remaining to selected
+        const idx = session.remaining.indexOf(itemId);
+        if (idx === -1) return;
+        session.remaining.splice(idx, 1);
+        session.selected.push(itemId);
+        // Refresh list
+        const order = await this.prisma.order.findUnique({
+          where: { id: session.orderId }, include: { items: true },
+        });
+        if (!order) { this.batchSessions.delete(from); return; }
+        const remaining = (order.items ?? []).filter((i) => session.remaining.includes(i.id));
+        const selected = (order.items ?? []).filter((i) => session.selected.includes(i.id));
+        const list = buildBatchSelectList(session.orderId, remaining, selected);
+        await this.sendInteractive(from, list, phoneNumberId);
+        return;
+      }
+
+      // batchstart_<orderId> — Seller starts chain-editing selected items
+      if (replyId.startsWith('batchstart_')) {
+        const orderId = replyId.replace('batchstart_', '');
+        const session = this.batchSessions.get(from);
+        if (!session || session.selected.length === 0) {
+          await this.sendText(from, '⚠️ No items selected.', phoneNumberId);
+          return;
+        }
+        // Get first selected item and open flow
+        const firstItemId = session.selected[0]!;
+        const item = await this.prisma.orderItem.findUnique({
+          where: { id: firstItemId }, include: { order: true },
+        });
+        if (!item) {
+          this.batchSessions.delete(from);
+          await this.sendText(from, '⚠️ Item not found.', phoneNumberId);
+          return;
+        }
+        await this.sendText(from, `✏️ Editing ${session.selected.length} item(s)...`, phoneNumberId);
+        await this.openSellerFlowForItem(from, item, phoneNumberId);
+        return;
+      }
+
+      // batchcancel_<orderId> — Seller cancels batch edit
+      if (replyId.startsWith('batchcancel_')) {
+        const orderId = replyId.replace('batchcancel_', '');
+        this.batchSessions.delete(from);
+        await this.sendInlinePackingSlip(from, orderId, phoneNumberId);
+        return;
+      }
+
       // edititem_<itemId> — Directly open Meta Flow (no sub-menu)
       if (replyId.startsWith('edititem_')) {
         const itemId = replyId.replace('edititem_', '');
@@ -1543,6 +1622,69 @@ export class WhatsAppService {
     const showPrice = order.status !== 'PENDING';
     const reviewList = buildOrderReviewList(orderId, order.items ?? [], showPrice);
     await this.sendInteractive(from, reviewList, phoneNumberId);
+  }
+
+  /**
+   * After seller saves an edit: if batch session active, continue to next
+   * item or finish. Otherwise just refresh packing slip.
+   */
+  public async afterSellerEdit(sellerPhone: string, orderId: string, editedItemId: string, phoneNumberId?: string) {
+    const session = this.batchSessions.get(sellerPhone);
+    if (session) {
+      // Remove the just-edited item from selected
+      const idx = session.selected.indexOf(editedItemId);
+      if (idx !== -1) session.selected.splice(idx, 1);
+
+      if (session.selected.length > 0) {
+        // Continue to next item
+        const nextId = session.selected[0]!;
+        const nextItem = await this.prisma.orderItem.findUnique({
+          where: { id: nextId }, include: { order: true },
+        });
+        if (nextItem) {
+          await this.openSellerFlowForItem(sellerPhone, nextItem, phoneNumberId);
+          return;
+        }
+      }
+      // All done or item not found — clean up and show packing slip
+      this.batchSessions.delete(sellerPhone);
+      await this.sendText(sellerPhone, '✅ Batch edit complete!', phoneNumberId);
+      await this.sendInlinePackingSlip(sellerPhone, orderId, phoneNumberId);
+      return;
+    }
+    // No batch session — normal refresh
+    await this.resendAfterEdit(sellerPhone, orderId, phoneNumberId);
+  }
+
+  /** Open seller Meta Flow for a specific item. Used by batch+chain edit. */
+  private async openSellerFlowForItem(
+    sellerPhone: string,
+    item: { id: string; name: string; quantity: number; unit: string | null; estimatedPrice: number | null; orderId: string },
+    phoneNumberId?: string,
+  ): Promise<void> {
+    const flowId = this.configService.get<string>('whatsapp.flowId') ?? '';
+    if (!flowId) {
+      await this.showInlineEditor(sellerPhone, item as any, phoneNumberId);
+      return;
+    }
+    const flowToken = this.flowsService.encodeFlowToken({
+      action: 'seller_edit',
+      itemId: item.id,
+      phone: sellerPhone,
+      orderId: item.orderId,
+    });
+    await this.sendFlow(
+      sellerPhone, flowId, 'Edit Item',
+      `✏️ Edit: ${item.name}`,
+      `${item.quantity} ${item.unit ?? 'pcs'} — ₹${item.estimatedPrice ?? '?'}`,
+      {
+        item_name: item.name,
+        item_price: item.estimatedPrice?.toString() ?? '',
+        item_quantity: item.quantity.toString(),
+        flow_token: flowToken,
+      },
+      phoneNumberId,
+    );
   }
 
   // ── Inline editor (button-driven via Edit button) ─────────────────
@@ -1942,12 +2084,12 @@ export class WhatsAppService {
   ): Promise<void> {
     const { token } = flow;
 
-    let ctx: { action: string; itemId: string; phone: string };
+    let ctx: { action: string; itemId: string; phone: string; orderId?: string };
     try {
       ctx = this.flowsService.decodeFlowToken(token);
     } catch {
       this.logger.warn(`Flow completion with invalid token from ${from}`);
-      return; // Data was already saved; just skip confirmation
+      return;
     }
 
     if (ctx.phone !== from) {
@@ -1963,8 +2105,12 @@ export class WhatsAppService {
 
     if (!item) return;
 
-    // Confirmation already sent by FlowsService.data_exchange — just refresh the view
-    await this.resendAfterEdit(from, item.orderId, phoneNumberId);
+    // Confirmation already sent by FlowsService.data_exchange.
+    // data_exchange also handles batch chain + view refresh synchronously.
+    // Only refresh buyer view from webhook (seller already handled).
+    if (ctx.action !== 'seller_edit') {
+      await this.resendAfterEdit(from, item.orderId, phoneNumberId);
+    }
   }
 
   // ── Media handling ────────────────────────────────────────────────

@@ -210,6 +210,13 @@ export function buildPackingSlip(orderId: string, items: OrderItem[]): WhatsAppI
     title: item.name,
     description: `${item.quantity} ${item.unit} — ₹${item.estimatedPrice ?? '?'}`,
   }));
+  if (pendingItems.length > 1) {
+    rows.push({
+      id: `batch_${orderId}`,
+      title: '✏️ Batch Edit',
+      description: `Select ${pendingItems.length} items to edit together`,
+    });
+  }
   rows.push({
     id: `finalize_${orderId}`,
     title: '📦 Finish Packing',
@@ -471,4 +478,45 @@ export function buildPickupReady(storeName: string, total: number, items: OrderI
     .join('\n');
 
   return `*${storeName}*\n📋 Order Receipt\n\n${itemList}\n\n💰 *Total: ₹${total}*\n\n✅ Ready for Pickup!\nPlease visit the store at your convenience.`;
+}
+
+// ── Batch edit: select multiple items then chain-edit ───────────────
+
+export function buildBatchSelectList(
+  orderId: string,
+  remaining: OrderItem[],
+  selected: OrderItem[],
+): WhatsAppInteractiveList {
+  const rows = remaining.map((item) => ({
+    id: `batchpick_${item.id}`,
+    title: item.name,
+    description: `➕ Add — ${item.quantity} ${item.unit ?? 'pcs'} — ₹${item.estimatedPrice ?? '?'}`,
+  }));
+  if (selected.length > 0) {
+    rows.push({
+      id: `batchstart_${orderId}`,
+      title: `✅ Start Editing (${selected.length})`,
+      description: `Edit ${selected.length} selected item(s)`,
+    });
+  }
+  rows.push({
+    id: `batchcancel_${orderId}`,
+    title: '❌ Cancel',
+    description: 'Go back to packing slip',
+  });
+
+  const selectedNames = selected.length > 0
+    ? `\n\n✅ Selected: ${selected.map((i) => i.name).join(', ')}`
+    : '';
+
+  return {
+    type: 'list',
+    header: { type: 'text', text: '✏️ Batch Edit' },
+    body: { text: `Tap items to select them. Then Start.${selectedNames}` },
+    footer: { text: 'SmartOrder' },
+    action: {
+      button: 'Select Items',
+      sections: [{ title: `${remaining.length} remaining`, rows }],
+    },
+  };
 }

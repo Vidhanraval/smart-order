@@ -322,11 +322,16 @@ export class FlowsService {
       }
     }
 
-    // Send WhatsApp confirmation + refresh view (don't wait for webhook)
+    // Send WhatsApp confirmation + handle post-edit flow
     await this.sendWhatsAppConfirmation(ctx.phone, name, price, quantity);
     if (ctx.orderId) {
-      // Both buyer & seller: refresh view so they see updated item & can pick next
-      await this.whatsAppService.resendAfterEdit(ctx.phone, ctx.orderId);
+      if (!isBuyerEdit) {
+        // Seller: batch chain or refresh packing slip
+        await this.whatsAppService.afterSellerEdit(ctx.phone, ctx.orderId, ctx.itemId);
+      } else {
+        // Buyer: refresh order review
+        await this.whatsAppService.resendAfterEdit(ctx.phone, ctx.orderId);
+      }
     }
 
     // Navigate to SUCCESS screen — user taps Done → complete → flow closes
