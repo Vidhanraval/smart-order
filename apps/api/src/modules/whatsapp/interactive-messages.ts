@@ -472,3 +472,29 @@ export function buildPickupReady(storeName: string, total: number, items: OrderI
 
   return `*${storeName}*\n📋 Order Receipt\n\n${itemList}\n\n💰 *Total: ₹${total}*\n\n✅ Ready for Pickup!\nPlease visit the store at your convenience.`;
 }
+
+// ── Continue editing (seller picks next item after edit) ────────────
+
+export function buildContinueEditing(orderId: string, items: OrderItem[]): WhatsAppInteractiveList {
+  const rows = items.map((item) => ({
+    id: `editafter_${item.id}`,
+    title: item.name,
+    description: `${item.quantity} ${item.unit ?? 'pcs'} — ₹${item.estimatedPrice ?? '?'}`,
+  }));
+  rows.push({
+    id: `editalldone_${orderId}`,
+    title: '✅ Done Editing',
+    description: 'Go back to packing slip',
+  });
+
+  return {
+    type: 'list',
+    header: { type: 'text', text: '✏️ Edit Another?' },
+    body: { text: `Item updated! ${items.length} more pending.\nSelect next item or Done:` },
+    footer: { text: 'SmartOrder' },
+    action: {
+      button: 'Choose',
+      sections: [{ title: 'Pending Items', rows }],
+    },
+  };
+}
