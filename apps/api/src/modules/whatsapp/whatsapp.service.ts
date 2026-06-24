@@ -990,6 +990,7 @@ export class WhatsAppService {
             `${item.quantity} ${item.unit ?? 'pcs'}`,
             {
               item_name: item.name,
+              item_price: '',
               item_quantity: item.quantity.toString(),
               flow_token: flowToken,
             },
