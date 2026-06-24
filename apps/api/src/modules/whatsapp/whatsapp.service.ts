@@ -19,7 +19,6 @@ import {
   buildInlineEditOptions,
   buildPricePicker,
   buildBuyerQtyPicker,
-  buildContinueEditing,
   formatItemsList,
   WhatsAppInteractiveButtons,
 } from './interactive-messages';
@@ -1261,45 +1260,7 @@ export class WhatsAppService {
         return;
       }
 
-      // editafter_<itemId> — Seller picks next item from "Edit Another?" list
-      if (replyId.startsWith('editafter_')) {
-        const itemId = replyId.replace('editafter_', '');
-        const item = await this.prisma.orderItem.findUnique({ where: { id: itemId }, include: { order: true } });
-        if (item) {
-          const flowId = this.configService.get<string>('whatsapp.flowId') ?? '';
-          if (flowId) {
-            const flowToken = this.flowsService.encodeFlowToken({
-              action: 'seller_edit',
-              itemId: item.id,
-              phone: from,
-              orderId: item.orderId,
-            });
-            await this.sendFlow(
-              from, flowId, 'Edit Item',
-              `✏️ Edit: ${item.name}`,
-              `${item.quantity} ${item.unit ?? 'pcs'} — ₹${item.estimatedPrice ?? '?'}`,
-              {
-                item_name: item.name,
-                item_price: item.estimatedPrice?.toString() ?? '',
-                item_quantity: item.quantity.toString(),
-                flow_token: flowToken,
-              },
-              phoneNumberId,
-            );
-          }
-        }
-        return;
-      }
-
-      // editalldone_<orderId> — Seller finishes editing all items
-      if (replyId.startsWith('editalldone_')) {
-        const orderId = replyId.replace('editalldone_', '');
-        await this.sendText(from, '✅ Editing complete!', phoneNumberId);
-        await this.sendInlinePackingSlip(from, orderId, phoneNumberId);
-        return;
-      }
-
-      // editdone_<itemId> — Seller finished editing → resend packing slip (legacy)
+      // editdone_<itemId> — Seller finished editing → resend packing slip
       if (replyId.startsWith('editdone_')) {
         const itemId = replyId.replace('editdone_', '');
         const item = await this.prisma.orderItem.findUnique({
@@ -1582,31 +1543,6 @@ export class WhatsAppService {
     const showPrice = order.status !== 'PENDING';
     const reviewList = buildOrderReviewList(orderId, order.items ?? [], showPrice);
     await this.sendInteractive(from, reviewList, phoneNumberId);
-  }
-
-  /**
-   * After a seller edit, either offer to continue editing more items
-   * or refresh the packing slip if no more pending items.
-   */
-  public async continueEditingOrRefresh(
-    sellerPhone: string,
-    orderId: string,
-    phoneNumberId?: string,
-  ): Promise<void> {
-    const pending = await this.prisma.orderItem.findMany({
-      where: {
-        orderId,
-        status: { in: ['PENDING', 'REPLACEMENT_ACCEPTED'] },
-      },
-    });
-
-    if (pending.length > 0) {
-      const list = buildContinueEditing(orderId, pending);
-      await this.sendInteractive(sellerPhone, list, phoneNumberId);
-    } else {
-      await this.sendText(sellerPhone, '✅ All items edited!', phoneNumberId);
-      await this.sendInlinePackingSlip(sellerPhone, orderId, phoneNumberId);
-    }
   }
 
   // ── Inline editor (button-driven via Edit button) ─────────────────
@@ -2027,13 +1963,8 @@ export class WhatsAppService {
 
     if (!item) return;
 
-    // Confirmation + view already handled by FlowsService.data_exchange.
-    // For seller: "Edit Another?" list or packing slip already sent.
-    // For buyer: order review already refreshed.
-    // Only refresh buyer view if webhook arrives after data_exchange.
-    if (ctx.action !== 'seller_edit') {
-      await this.resendAfterEdit(from, item.orderId, phoneNumberId);
-    }
+    // Confirmation already sent by FlowsService.data_exchange — just refresh the view
+    await this.resendAfterEdit(from, item.orderId, phoneNumberId);
   }
 
   // ── Media handling ────────────────────────────────────────────────

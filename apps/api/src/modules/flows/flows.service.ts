@@ -325,13 +325,8 @@ export class FlowsService {
     // Send WhatsApp confirmation + refresh view (don't wait for webhook)
     await this.sendWhatsAppConfirmation(ctx.phone, name, price, quantity);
     if (ctx.orderId) {
-      if (!isBuyerEdit) {
-        // Seller: offer to continue editing more items
-        await this.whatsAppService.continueEditingOrRefresh(ctx.phone, ctx.orderId);
-      } else {
-        // Buyer: just refresh order review
-        await this.whatsAppService.resendAfterEdit(ctx.phone, ctx.orderId);
-      }
+      // Both buyer & seller: refresh view so they see updated item & can pick next
+      await this.whatsAppService.resendAfterEdit(ctx.phone, ctx.orderId);
     }
 
     // Navigate to SUCCESS screen — user taps Done → complete → flow closes
