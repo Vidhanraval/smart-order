@@ -143,6 +143,24 @@ export class OrdersService {
     });
   }
 
+  async updateItem(
+    itemId: string,
+    data: { name?: string; quantity?: number; estimatedPrice?: number; unit?: string },
+  ) {
+    return this.prisma.orderItem.update({
+      where: { id: itemId },
+      data,
+    });
+  }
+
+  async deleteItem(itemId: string) {
+    return this.prisma.orderItem.delete({ where: { id: itemId } });
+  }
+
+  async confirmOrder(orderId: string) {
+    return this.transitionStatus(orderId, 'SUBMITTED');
+  }
+
   async finalizeTotal(orderId: string) {
     const order = await this.findById(orderId);
     const items = order.items ?? [];

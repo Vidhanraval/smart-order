@@ -1,5 +1,6 @@
-import { Controller, Get, Post, Param, Query, Body } from '@nestjs/common';
+import { Controller, Get, Post, Patch, Delete, Param, Query, Body } from '@nestjs/common';
 import { OrdersService } from './orders.service';
+import { UpdateItemDto } from './dto/update-item.dto';
 
 @Controller('api/orders')
 export class OrdersController {
@@ -26,5 +27,20 @@ export class OrdersController {
   @Post('test-create')
   async testCreate(@Body() body: { customerPhone: string; sellerPhone: string; items: Array<{ name: string; quantity: number; price?: number; unit?: string }> }) {
     return this.ordersService.testCreateOrder(body);
+  }
+
+  @Patch('items/:itemId')
+  async updateItem(@Param('itemId') itemId: string, @Body() body: UpdateItemDto) {
+    return this.ordersService.updateItem(itemId, body);
+  }
+
+  @Delete('items/:itemId')
+  async deleteItem(@Param('itemId') itemId: string) {
+    return this.ordersService.deleteItem(itemId);
+  }
+
+  @Post(':id/confirm')
+  async confirmOrder(@Param('id') id: string) {
+    return this.ordersService.confirmOrder(id);
   }
 }

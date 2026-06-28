@@ -57,3 +57,31 @@
 .notification-dot {
   animation: notificationPulse 1.5s infinite;
 }
+
+/* ── Inline editing ───────────────────────────────────────────── */
+
+@keyframes editSlideIn {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.edit-row-enter {
+  animation: editSlideIn 0.2s ease-out;
+}
+
+/* Toggle switch */
+.toggle-track {
+  transition: background-color 0.2s ease;
+}
+.toggle-thumb {
+  transition: transform 0.2s ease;
+}
+
+/* Number input — hide spinners for quantity stepper */
+input[type='number'].no-spin::-webkit-outer-spin-button,
+input[type='number'].no-spin::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+input[type='number'].no-spin {
+  -moz-appearance: textfield;
+}
