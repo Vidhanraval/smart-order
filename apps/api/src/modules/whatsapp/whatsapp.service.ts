@@ -23,6 +23,13 @@ import {
   formatItemsList,
   WhatsAppInteractiveButtons,
 } from './interactive-messages';
+import {
+  TemplateMessagePayload,
+  buildOrderConfirmedTemplate,
+  buildOrderReadyTemplate,
+  formatItemsSummary,
+  formatOrderId,
+} from './template-messages';
 import axios from 'axios';
 
 type InteractiveMessage =
@@ -1544,6 +1551,17 @@ export class WhatsAppService {
       await this.ordersService.transitionStatus(orderId, 'PACKING');
       await this.sendText(from, '✅ Prices confirmed! The shop will now pack your order.', sellerPhoneNumberId);
       await this.sendText(order.seller.phoneNumber, `✅ ${order.customer.name ?? 'Buyer'} confirmed prices!\n\nPack & finalize:`, sellerPhoneNumberId);
+
+      // Send template update (non-blocking)
+      if (order.items?.length) {
+        const tmpl = buildOrderConfirmedTemplate(
+          formatOrderId(order.id),
+          formatItemsSummary(order.items),
+          `₹${order.totalPrice ?? 'TBD'}`,
+        );
+        this.sendTemplate(from, tmpl, sellerPhoneNumberId).catch(() => {});
+      }
+
       await this.sendInlinePackingSlip(order.seller.phoneNumber, orderId, sellerPhoneNumberId);
       return;
     }
@@ -1584,6 +1602,16 @@ export class WhatsAppService {
     );
 
     await Promise.all([buyerMsg, sellerMsg]);
+
+    // Send template confirmation (non-blocking — falls back to text above)
+    if (order.items?.length) {
+      const tmpl = buildOrderConfirmedTemplate(
+        formatOrderId(order.id),
+        formatItemsSummary(order.items),
+        'To be calculated',
+      );
+      this.sendTemplate(order.customer.phoneNumber, tmpl, sellerPhoneNumberId).catch(() => {});
+    }
 
     // Send packing slip so seller can set prices first.
     // PACKING starts after buyer confirms the prices.
@@ -1871,6 +1899,18 @@ export class WhatsAppService {
     await this.sendText(order.customer.phoneNumber, message, sellerPnId);
     await this.sendText(sellerPhone, `Order finalized! Total: ₹${total}. Customer notified for pickup.`, sellerPnId);
 
+    // Send ready-for-pickup template (non-blocking)
+    if (order.items?.length) {
+      const store = order.seller.storeName ?? order.seller.name ?? 'Your Shop';
+      const tmpl = buildOrderReadyTemplate(
+        formatOrderId(order.id),
+        formatItemsSummary(order.items),
+        `₹${total}`,
+        store,
+      );
+      this.sendTemplate(order.customer.phoneNumber, tmpl, sellerPnId).catch(() => {});
+    }
+
     await this.ordersService.transitionStatus(orderId, 'COMPLETED');
   }
 
@@ -1943,6 +1983,51 @@ export class WhatsAppService {
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : String(error);
       this.logger.error(`Failed to send text to ${to}: ${message}`);
+      return null;
+    }
+  }
+
+  async sendTemplate(
+    to: string,
+    template: TemplateMessagePayload,
+    phoneNumberId?: string,
+  ): Promise<string | null> {
+    try {
+      const resolvedPhoneNumberId = phoneNumberId || this.configService.get<string>('whatsapp.phoneNumberId');
+      const accessToken = this.configService.get<string>('whatsapp.accessToken');
+
+      const { data } = await axios.post(
+        `https://graph.facebook.com/v22.0/${resolvedPhoneNumberId}/messages`,
+        {
+          messaging_product: 'whatsapp',
+          recipient_type: 'individual',
+          to,
+          type: 'template',
+          template,
+        },
+        { headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' } },
+      );
+
+      const waMessageId = data.messages?.[0]?.id;
+      if (waMessageId && resolvedPhoneNumberId) {
+        await this.prisma.message.create({
+          data: {
+            waMessageId,
+            from: resolvedPhoneNumberId,
+            to,
+            direction: 'OUTBOUND',
+            body: `[TEMPLATE] ${template.name}`,
+          },
+        });
+      }
+
+      return waMessageId;
+    } catch (error: unknown) {
+      const errMsg = error instanceof Error ? error.message : String(error);
+      const detail = (error as any)?.response?.data ? JSON.stringify((error as any).response.data) : '';
+      this.logger.error(`Failed to send template ${template.name} to ${to}: ${errMsg} ${detail}`);
+
+      // Fallback: don't silently fail — return null so caller knows template failed
       return null;
     }
   }
