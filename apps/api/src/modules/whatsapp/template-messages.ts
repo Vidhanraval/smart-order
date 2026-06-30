@@ -183,3 +183,105 @@ export function formatItemsSummary(
 export function formatOrderId(id: string): string {
   return `#${id.slice(0, 8).toUpperCase()}`;
 }
+
+// ── Catalog Message Builders ───────────────────────────────────
+
+/**
+ * WhatsApp Catalog Product & Product List messages.
+ * These are "interactive" type messages (NOT template messages),
+ * so they DO NOT need Meta approval. They work immediately once:
+ * 1. Catalog is created in Meta Commerce Manager
+ * 2. Catalog is connected to the WhatsApp Business Account
+ *
+ * SETUP:
+ * 1. Create catalog: https://business.facebook.com/commerce/catalogs/
+ * 2. Add products with unique product_retailer_id
+ * 3. Connect catalog to WABA: https://business.facebook.com/settings/whatsapp-business-accounts/
+ *    → WhatsApp Account → Settings → Catalog → Select catalog
+ */
+
+export interface CatalogProductMessage {
+  type: 'product';
+  body: { text: string };
+  footer?: { text: string };
+  action: {
+    catalog_id: string;
+    product_retailer_id: string;
+  };
+}
+
+export interface CatalogSection {
+  title: string;
+  product_items: Array<{ product_retailer_id: string }>;
+}
+
+export interface CatalogProductListMessage {
+  type: 'product_list';
+  header: { type: 'text'; text: string };
+  body: { text: string };
+  footer?: { text: string };
+  action: {
+    catalog_id: string;
+    sections: CatalogSection[];
+  };
+}
+
+/**
+ * Build a single product catalog message.
+ * Shows ONE product with image, price, description from the catalog.
+ */
+export function buildCatalogSingleProduct(
+  catalogId: string,
+  productRetailerId: string,
+  bodyText: string,
+): CatalogProductMessage {
+  return {
+    type: 'product',
+    body: { text: bodyText },
+    footer: { text: 'SmartOrder' },
+    action: {
+      catalog_id: catalogId,
+      product_retailer_id: productRetailerId,
+    },
+  };
+}
+
+/**
+ * Build a multi-product catalog browse message.
+ * Shows up to 30 products organized in sections (max 10 sections).
+ */
+export function buildCatalogProductList(
+  catalogId: string,
+  headerText: string,
+  bodyText: string,
+  sections: CatalogSection[],
+): CatalogProductListMessage {
+  return {
+    type: 'product_list',
+    header: { type: 'text', text: headerText },
+    body: { text: bodyText },
+    footer: { text: 'SmartOrder' },
+    action: {
+      catalog_id: catalogId,
+      sections,
+    },
+  };
+}
+
+/**
+ * Build a product browse section from order items.
+ * Groups items into sections by category (or all in one section).
+ */
+export function buildCatalogOrderSection(
+  sectionTitle: string,
+  productRetailerIds: string[],
+): CatalogSection {
+  return {
+    title: sectionTitle,
+    product_items: productRetailerIds.map((id) => ({ product_retailer_id: id })),
+  };
+}
+
+// Default catalog ID from env config
+export const SMARTORDER_CATALOG_ID = '4421780008110580';
+

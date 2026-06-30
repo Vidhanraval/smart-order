@@ -29,12 +29,16 @@ import {
   buildOrderReadyTemplate,
   formatItemsSummary,
   formatOrderId,
+  CatalogProductMessage,
+  CatalogProductListMessage,
 } from './template-messages';
 import axios from 'axios';
 
 type InteractiveMessage =
   | { type: 'list'; header?: object; body: object; footer?: object; action: object }
-  | { type: 'button'; header?: object; body: object; footer?: object; action: object };
+  | { type: 'button'; header?: object; body: object; footer?: object; action: object }
+  | { type: 'product'; body: object; footer?: object; action: object }
+  | { type: 'product_list'; header?: object; body: object; footer?: object; action: object };
 
 @Injectable()
 export class WhatsAppService {
@@ -2079,6 +2083,132 @@ export class WhatsAppService {
 
       return null;
     }
+  }
+
+  // ── Catalog message senders ─────────────────────────────────────
+
+  /**
+   * Send a single product catalog message.
+   * Shows ONE product from the catalog with image, price, and description.
+   * No template approval needed.
+   */
+  async sendCatalogProduct(
+    to: string,
+    catalogMsg: CatalogProductMessage,
+    phoneNumberId?: string,
+  ): Promise<string | null> {
+    try {
+      const resolvedPhoneNumberId = phoneNumberId || this.configService.get<string>('whatsapp.phoneNumberId');
+      const accessToken = this.configService.get<string>('whatsapp.accessToken');
+
+      const { data } = await axios.post(
+        `https://graph.facebook.com/v22.0/${resolvedPhoneNumberId}/messages`,
+        {
+          messaging_product: 'whatsapp',
+          recipient_type: 'individual',
+          to,
+          type: 'interactive',
+          interactive: catalogMsg,
+        },
+        { headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' } },
+      );
+
+      const waMessageId = data.messages?.[0]?.id;
+      if (waMessageId && resolvedPhoneNumberId) {
+        await this.prisma.message.create({
+          data: {
+            waMessageId,
+            from: resolvedPhoneNumberId,
+            to,
+            direction: 'OUTBOUND',
+            body: `[CATALOG] product: ${catalogMsg.action.product_retailer_id}`,
+          },
+        });
+      }
+      return waMessageId;
+    } catch (error: unknown) {
+      const errMsg = error instanceof Error ? error.message : String(error);
+      this.logger.error(`Failed to send catalog product to ${to}: ${errMsg}`);
+      return null;
+    }
+  }
+
+  /**
+   * Send a multi-product catalog browse message.
+   * Shows multiple products organized in sections (up to 30 products, 10 sections).
+   * No template approval needed.
+   */
+  async sendCatalogProductList(
+    to: string,
+    catalogMsg: CatalogProductListMessage,
+    phoneNumberId?: string,
+  ): Promise<string | null> {
+    try {
+      const resolvedPhoneNumberId = phoneNumberId || this.configService.get<string>('whatsapp.phoneNumberId');
+      const accessToken = this.configService.get<string>('whatsapp.accessToken');
+
+      const { data } = await axios.post(
+        `https://graph.facebook.com/v22.0/${resolvedPhoneNumberId}/messages`,
+        {
+          messaging_product: 'whatsapp',
+          recipient_type: 'individual',
+          to,
+          type: 'interactive',
+          interactive: catalogMsg,
+        },
+        { headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' } },
+      );
+
+      const waMessageId = data.messages?.[0]?.id;
+      if (waMessageId && resolvedPhoneNumberId) {
+        await this.prisma.message.create({
+          data: {
+            waMessageId,
+            from: resolvedPhoneNumberId,
+            to,
+            direction: 'OUTBOUND',
+            body: `[CATALOG] product_list: ${catalogMsg.action.sections.length} sections`,
+          },
+        });
+      }
+      return waMessageId;
+    } catch (error: unknown) {
+      const errMsg = error instanceof Error ? error.message : String(error);
+      this.logger.error(`Failed to send catalog product list to ${to}: ${errMsg}`);
+      return null;
+    }
+  }
+
+  // ── Catalog browse entry point ─────────────────────────────────
+
+  /**
+   * Send a product catalog to a buyer for browsing.
+   * Groups all products into sections and shows them as a browseable catalog.
+   */
+  async sendCatalogBrowse(
+    to: string,
+    sections: { title: string; productRetailerIds: string[] }[],
+    catalogId?: string,
+    phoneNumberId?: string,
+  ): Promise<string | null> {
+    const resolvedCatalogId = catalogId || '4421780008110580';
+    const catalogSections = sections
+      .filter((s) => s.productRetailerIds.length > 0)
+      .map((s) => ({
+        title: s.title,
+        product_items: s.productRetailerIds.map((id) => ({ product_retailer_id: id })),
+      }));
+
+    if (catalogSections.length === 0) return null;
+
+    const msg = buildCatalogProductList(
+      resolvedCatalogId,
+      'Browse Products',
+      'Tap a product to view details and add to your order:',
+      catalogSections,
+    );
+
+    return this.sendCatalogProductList(to, msg, phoneNumberId);
   }
 
   // ── Flow message sender ──────────────────────────────────────────
