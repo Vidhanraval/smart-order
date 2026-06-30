@@ -27,6 +27,7 @@ import {
   TemplateMessagePayload,
   buildOrderConfirmedTemplate,
   buildOrderReadyTemplate,
+  buildCatalogProductList,
   formatItemsSummary,
   formatOrderId,
   CatalogProductMessage,
@@ -37,8 +38,9 @@ import axios from 'axios';
 type InteractiveMessage =
   | { type: 'list'; header?: object; body: object; footer?: object; action: object }
   | { type: 'button'; header?: object; body: object; footer?: object; action: object }
-  | { type: 'product'; body: object; footer?: object; action: object }
-  | { type: 'product_list'; header?: object; body: object; footer?: object; action: object };
+  | { type: 'product'; header?: object; body: object; footer?: object; action: object }
+  | { type: 'product_list'; header?: object; body: object; footer?: object; action: object }
+  | { type: 'flow'; header?: object; body: object; footer?: object; action: object };
 
 @Injectable()
 export class WhatsAppService {
