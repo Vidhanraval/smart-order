@@ -283,5 +283,5 @@ export function buildCatalogOrderSection(
 }
 
 // Default catalog ID from env config
-export const SMARTORDER_CATALOG_ID = '4421780008110580';
+export const SMARTORDER_CATALOG_ID = '28131434943124434';
 

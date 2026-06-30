@@ -2191,7 +2191,7 @@ export class WhatsAppService {
     catalogId?: string,
     phoneNumberId?: string,
   ): Promise<string | null> {
-    const resolvedCatalogId = catalogId || '4421780008110580';
+    const resolvedCatalogId = catalogId || '28131434943124434';
     const catalogSections = sections
       .filter((s) => s.productRetailerIds.length > 0)
       .map((s) => ({
